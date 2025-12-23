@@ -4,11 +4,13 @@ import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 interface ChatBlockData {
+    id: string;
     title: string;
     messages: Array<{
         role: 'user' | 'assistant';
         content: string;
     }>;
+    onOpen?: () => void;
 }
 
 interface ChatBlockNodeProps {
@@ -17,8 +19,20 @@ interface ChatBlockNodeProps {
 }
 
 function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
+    const lastMessage = data.messages[data.messages.length - 1];
+
+    const handleClick = (e: React.MouseEvent) => {
+        // Only open on double-click or if clicking the content area
+        if (e.detail === 2 || (e.target as HTMLElement).classList.contains('chat-block-content')) {
+            data.onOpen?.();
+        }
+    };
+
     return (
-        <div className={`chat-block-node ${selected ? 'selected' : ''}`}>
+        <div
+            className={`chat-block-node ${selected ? 'selected' : ''}`}
+            onClick={handleClick}
+        >
             {/* Input handle for connections */}
             <Handle
                 type="target"
@@ -37,13 +51,24 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
 
             <div className="chat-block-content">
                 {data.messages.length === 0 ? (
-                    <p className="chat-block-empty">Click to start chatting...</p>
+                    <p className="chat-block-empty">Double-click to start chatting...</p>
                 ) : (
                     <p className="chat-block-preview">
-                        {data.messages[data.messages.length - 1]?.content.slice(0, 100)}...
+                        <span className="chat-block-preview-role">
+                            {lastMessage.role === 'user' ? 'You: ' : 'AI: '}
+                        </span>
+                        {lastMessage.content.slice(0, 80)}
+                        {lastMessage.content.length > 80 ? '...' : ''}
                     </p>
                 )}
             </div>
+
+            {/* Message count badge */}
+            {data.messages.length > 0 && (
+                <div className="chat-block-badge">
+                    {data.messages.length}
+                </div>
+            )}
 
             {/* Output handle for branching */}
             <Handle
