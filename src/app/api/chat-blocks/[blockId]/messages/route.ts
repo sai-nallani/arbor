@@ -23,11 +23,26 @@ export async function POST(
         }
 
         const { blockId } = await params;
-        const body = await request.json();
+
+        let body;
+        try {
+            body = await request.json();
+        } catch (e) {
+            console.error('[API] Failed to parse JSON body:', e);
+            return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+        }
+
         const { role, content } = body;
 
-        if (!role || !content) {
-            return NextResponse.json({ error: 'role and content required' }, { status: 400 });
+        console.log(`[API] Saving message for block ${blockId}:`, { role, contentLength: content?.length, contentSample: typeof content === 'string' ? content.slice(0, 20) : content });
+
+        // Relaxed validation: Allow empty string for content, but role matches
+        if (!role || content === undefined || content === null) {
+            console.error('[API] Missing role or content:', { role, content, body });
+            return NextResponse.json({
+                error: 'role and content required',
+                received: { role, content: content === undefined ? 'undefined' : content }
+            }, { status: 400 });
         }
 
         // Fetch the block first

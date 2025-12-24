@@ -7,7 +7,7 @@
 import Dedalus, { DedalusRunner } from 'dedalus-labs';
 import type { AIProvider, AICompletionOptions, AIStreamChunk } from '../types';
 
-const DEFAULT_MODEL = 'openai/gpt-4o-mini';
+const DEFAULT_MODEL = 'anthropic/claude-opus-4';
 
 export class DedalusProvider implements AIProvider {
     readonly name = 'dedalus';

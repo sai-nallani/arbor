@@ -18,6 +18,9 @@ export function Sidebar() {
     const [isLoading, setIsLoading] = useState(true);
     const [isCreating, setIsCreating] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editingName, setEditingName] = useState('');
+    const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
     const router = useRouter();
     const pathname = usePathname();
 
@@ -38,6 +41,18 @@ export function Sidebar() {
         }
 
         fetchBoards();
+    }, []);
+
+    // Listen for new board creation from other components
+    useEffect(() => {
+        const handleBoardCreated = (event: CustomEvent<Board>) => {
+            setBoards(prev => [event.detail, ...prev]);
+        };
+
+        window.addEventListener('boardCreated', handleBoardCreated as EventListener);
+        return () => {
+            window.removeEventListener('boardCreated', handleBoardCreated as EventListener);
+        };
     }, []);
 
     // Handle creating a new board
@@ -90,6 +105,52 @@ export function Sidebar() {
         } finally {
             setDeletingId(null);
         }
+    }
+
+    // Handle renaming a board
+    async function handleRenameBoard(boardId: string) {
+        const trimmedName = editingName.trim();
+        if (!trimmedName) {
+            setEditingId(null);
+            return;
+        }
+
+        // Optimistic update - update UI immediately
+        const previousName = boards.find(b => b.id === boardId)?.name;
+        setBoards(prev => prev.map(b => b.id === boardId ? { ...b, name: trimmedName } : b));
+        setEditingId(null);
+
+        // Then make the API call
+        try {
+            const response = await fetch(`/api/boards/${boardId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: trimmedName }),
+            });
+
+            if (!response.ok) {
+                // Revert on error
+                setBoards(prev => prev.map(b => b.id === boardId ? { ...b, name: previousName || '' } : b));
+            }
+        } catch (error) {
+            console.error('Error renaming board:', error);
+            // Revert on error
+            setBoards(prev => prev.map(b => b.id === boardId ? { ...b, name: previousName || '' } : b));
+        }
+    }
+
+    // Start editing a board name
+    function startEditing(board: Board) {
+        setMenuOpenId(null);
+        setEditingId(board.id);
+        setEditingName(board.name);
+    }
+
+    // Toggle menu
+    function toggleMenu(e: React.MouseEvent, boardId: string) {
+        e.preventDefault();
+        e.stopPropagation();
+        setMenuOpenId(menuOpenId === boardId ? null : boardId);
     }
 
     return (
@@ -176,21 +237,73 @@ export function Sidebar() {
                                         </svg>
                                         {!isCollapsed && (
                                             <>
-                                                <span className="board-name">{board.name}</span>
-                                                <button
-                                                    className="board-delete-btn"
-                                                    onClick={(e) => handleDeleteBoard(e, board.id)}
-                                                    disabled={isDeleting}
-                                                    aria-label="Delete board"
-                                                >
-                                                    {isDeleting ? (
-                                                        <div className="delete-spinner" />
-                                                    ) : (
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                                                {editingId === board.id ? (
+                                                    <input
+                                                        type="text"
+                                                        className="board-name-input"
+                                                        value={editingName}
+                                                        onChange={(e) => setEditingName(e.target.value)}
+                                                        onBlur={() => handleRenameBoard(board.id)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') handleRenameBoard(board.id);
+                                                            if (e.key === 'Escape') setEditingId(null);
+                                                        }}
+                                                        autoFocus
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                ) : (
+                                                    <span className="board-name">
+                                                        {board.name}
+                                                    </span>
+                                                )}
+                                                <div className="board-menu-container">
+                                                    <button
+                                                        className="board-menu-btn"
+                                                        onClick={(e) => toggleMenu(e, board.id)}
+                                                        aria-label="Board options"
+                                                    >
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                                            <circle cx="12" cy="5" r="2" />
+                                                            <circle cx="12" cy="12" r="2" />
+                                                            <circle cx="12" cy="19" r="2" />
                                                         </svg>
+                                                    </button>
+                                                    {menuOpenId === board.id && (
+                                                        <div className="board-menu-dropdown">
+                                                            <button
+                                                                className="board-menu-item"
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    startEditing(board);
+                                                                }}
+                                                            >
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                                                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                                                </svg>
+                                                                Rename
+                                                            </button>
+                                                            <button
+                                                                className="board-menu-item danger"
+                                                                onClick={(e) => {
+                                                                    setMenuOpenId(null);
+                                                                    handleDeleteBoard(e, board.id);
+                                                                }}
+                                                                disabled={isDeleting}
+                                                            >
+                                                                {isDeleting ? (
+                                                                    <div className="delete-spinner" />
+                                                                ) : (
+                                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                                                                    </svg>
+                                                                )}
+                                                                Delete
+                                                            </button>
+                                                        </div>
                                                     )}
-                                                </button>
+                                                </div>
                                             </>
                                         )}
                                     </a>

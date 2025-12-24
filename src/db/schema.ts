@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, doublePrecision, uuid, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, doublePrecision, uuid, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ============================================
@@ -28,8 +28,10 @@ export const chatBlocks = pgTable('chat_blocks', {
     id: uuid('id').defaultRandom().primaryKey(),
     boardId: uuid('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
     title: text('title').default('New Chat').notNull(),
+    model: text('model').default('openai/gpt-5').notNull(),
     positionX: doublePrecision('position_x').notNull(),
     positionY: doublePrecision('position_y').notNull(),
+    isExpanded: boolean('is_expanded').default(false),
     parentId: uuid('parent_id').references(() => chatBlocks.id, { onDelete: 'set null' }), // Self-reference for branching
     branchContext: text('branch_context'), // Compressed context from parent chain
     branchSourceText: text('branch_source_text'), // The highlighted text that spawned this branch
@@ -85,21 +87,7 @@ export const boardsRelations = relations(boards, ({ one, many }) => ({
     fileNodes: many(fileNodes),
 }));
 
-export const chatBlocksRelations = relations(chatBlocks, ({ one, many }) => ({
-    board: one(boards, { fields: [chatBlocks.boardId], references: [boards.id] }),
-    parent: one(chatBlocks, {
-        fields: [chatBlocks.parentId],
-        references: [chatBlocks.id],
-        relationName: 'branches'
-    }),
-    children: many(chatBlocks, { relationName: 'branches' }),
-    messages: many(messages),
-    fileLinks: many(fileLinks),
-}));
 
-export const messagesRelations = relations(messages, ({ one }) => ({
-    chatBlock: one(chatBlocks, { fields: [messages.chatBlockId], references: [chatBlocks.id] }),
-}));
 
 export const fileNodesRelations = relations(fileNodes, ({ one, many }) => ({
     board: one(boards, { fields: [fileNodes.boardId], references: [boards.id] }),
@@ -130,5 +118,42 @@ export type NewMessage = typeof messages.$inferInsert;
 export type FileNode = typeof fileNodes.$inferSelect;
 export type NewFileNode = typeof fileNodes.$inferInsert;
 
-export type FileLink = typeof fileLinks.$inferSelect;
 export type NewFileLink = typeof fileLinks.$inferInsert;
+
+// Message links - for branching references (footnotes)
+export const messageLinks = pgTable('message_links', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sourceMessageId: uuid('source_message_id').notNull().references(() => messages.id, { onDelete: 'cascade' }),
+    targetBlockId: uuid('target_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
+    quoteStart: doublePrecision('quote_start').notNull(), // Using double for safe integer storage if needed, but int is fine
+    quoteEnd: doublePrecision('quote_end').notNull(),
+    quoteText: text('quote_text'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const messageLinksRelations = relations(messageLinks, ({ one }) => ({
+    sourceMessage: one(messages, { fields: [messageLinks.sourceMessageId], references: [messages.id] }),
+    targetBlock: one(chatBlocks, { fields: [messageLinks.targetBlockId], references: [chatBlocks.id] }),
+}));
+
+// Update existing relations
+export const messagesRelations = relations(messages, ({ one, many }) => ({
+    chatBlock: one(chatBlocks, { fields: [messages.chatBlockId], references: [chatBlocks.id] }),
+    outgoingLinks: many(messageLinks, { relationName: 'sourceMessage' }),
+}));
+
+export const chatBlocksRelations = relations(chatBlocks, ({ one, many }) => ({
+    board: one(boards, { fields: [chatBlocks.boardId], references: [boards.id] }),
+    parent: one(chatBlocks, {
+        fields: [chatBlocks.parentId],
+        references: [chatBlocks.id],
+        relationName: 'branches'
+    }),
+    children: many(chatBlocks, { relationName: 'branches' }),
+    messages: many(messages),
+    fileLinks: many(fileLinks),
+    incomingLinks: many(messageLinks, { relationName: 'targetBlock' }),
+}));
+
+export type MessageLink = typeof messageLinks.$inferSelect;
+export type NewMessageLink = typeof messageLinks.$inferInsert;

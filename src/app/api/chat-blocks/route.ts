@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/db';
-import { chatBlocks, boards } from '@/db/schema';
+import { chatBlocks, boards, messages, messageLinks } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 
 // GET /api/chat-blocks?boardId=xxx
@@ -59,7 +59,20 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { boardId, title, positionX, positionY, parentId, branchContext, branchSourceText } = body;
+        const {
+            boardId,
+            title,
+            positionX,
+            positionY,
+            parentId,
+            branchContext,
+            branchSourceText,
+            initialMessages, // Array of { role, content } to clone
+            sourceMessageId, // For linking
+            quoteStart,
+            quoteEnd,
+            quoteText
+        } = body;
 
         if (!boardId) {
             return NextResponse.json({ error: 'boardId required' }, { status: 400 });
@@ -75,21 +88,49 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Board not found' }, { status: 404 });
         }
 
-        // Create the chat block
-        const [newBlock] = await db
-            .insert(chatBlocks)
-            .values({
-                boardId,
-                title: title || 'New Chat',
-                positionX: positionX ?? 250,
-                positionY: positionY ?? 150,
-                parentId: parentId || null,
-                branchContext: branchContext || null,
-                branchSourceText: branchSourceText || null,
-            })
-            .returning();
+        // Transactional creation
+        const result = await db.transaction(async (tx) => {
+            // 1. Create the chat block
+            const [newBlock] = await tx
+                .insert(chatBlocks)
+                .values({
+                    boardId,
+                    title: title || 'New Chat',
+                    model: body.model || 'openai/gpt-5',
+                    positionX: positionX ?? 250,
+                    positionY: positionY ?? 150,
+                    parentId: parentId || null,
+                    branchContext: branchContext || null,
+                    branchSourceText: branchSourceText || null,
+                })
+                .returning();
 
-        return NextResponse.json(newBlock, { status: 201 });
+            // 2. Clone initial messages if provided
+            if (initialMessages && Array.isArray(initialMessages) && initialMessages.length > 0) {
+                await tx.insert(messages).values(
+                    initialMessages.map((msg: any) => ({
+                        chatBlockId: newBlock.id,
+                        role: msg.role,
+                        content: msg.content,
+                    }))
+                );
+            }
+
+            // 3. Create message link if source provided
+            if (sourceMessageId && quoteStart !== undefined && quoteEnd !== undefined) {
+                await tx.insert(messageLinks).values({
+                    sourceMessageId,
+                    targetBlockId: newBlock.id,
+                    quoteStart,
+                    quoteEnd,
+                    quoteText: quoteText || null,
+                });
+            }
+
+            return newBlock;
+        });
+
+        return NextResponse.json(result, { status: 201 });
     } catch (error) {
         console.error('Error creating chat block:', error);
         return NextResponse.json({ error: 'Failed to create block' }, { status: 500 });

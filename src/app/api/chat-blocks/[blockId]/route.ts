@@ -77,7 +77,7 @@ export async function PATCH(
 
         const { blockId } = await params;
         const body = await request.json();
-        const { title, positionX, positionY } = body;
+        const { title, positionX, positionY, model, isExpanded } = body;
 
         // Fetch the block first
         const block = await db
@@ -107,6 +107,8 @@ export async function PATCH(
         if (title !== undefined) updates.title = title;
         if (positionX !== undefined) updates.positionX = positionX;
         if (positionY !== undefined) updates.positionY = positionY;
+        if (model !== undefined) updates.model = model;
+        if (isExpanded !== undefined) updates.isExpanded = isExpanded;
 
         // Update the block
         const [updatedBlock] = await db

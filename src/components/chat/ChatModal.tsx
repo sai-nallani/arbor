@@ -100,12 +100,12 @@ export default function ChatModal({
                             <p>Start a conversation...</p>
                         </div>
                     ) : (
-                        messages.map((msg) => (
+                        messages.map((msg, index) => (
                             <ChatMessage
-                                key={msg.id}
+                                key={`msg-${index}`}
                                 role={msg.role as 'user' | 'assistant'}
                                 content={msg.content}
-                                isStreaming={status === 'streaming' && msg === messages[messages.length - 1] && msg.role === 'assistant'}
+                                isStreaming={status === 'streaming' && index === messages.length - 1 && msg.role === 'assistant'}
                             />
                         ))
                     )}

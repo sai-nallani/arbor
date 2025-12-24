@@ -1,68 +1,93 @@
-"use client";
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
+import { db } from '@/db';
+import { boards, chatBlocks, messages, messageLinks } from '@/db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
+import CanvasWrapper from '@/components/canvas/CanvasWrapper';
 
-import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
-
-// Dynamically import Canvas to avoid SSR issues with React Flow
-const Canvas = dynamic(() => import('@/components/canvas/Canvas'), {
-    ssr: false,
-    loading: () => (
-        <div className="canvas-container">
-            <div className="canvas-loading">
-                <div className="loading-spinner" />
-                <p>Loading canvas...</p>
-            </div>
-        </div>
-    ),
-});
-
-interface Board {
+interface ChatBlockWithMessages {
     id: string;
-    name: string;
-    createdAt: string;
-    updatedAt: string;
+    title: string;
+    positionX: number;
+    positionY: number;
+    messages: Array<{
+        id: string;
+        role: string;
+        content: string;
+    }>;
 }
 
-export default function BoardPage() {
-    const params = useParams();
-    const boardId = params.boardId as string;
-    const [board, setBoard] = useState<Board | null>(null);
-    const [loading, setLoading] = useState(true);
+interface PageProps {
+    params: Promise<{ boardId: string }>;
+}
 
-    useEffect(() => {
-        async function fetchBoard() {
-            try {
-                const response = await fetch('/api/boards');
-                if (response.ok) {
-                    const boards: Board[] = await response.json();
-                    const currentBoard = boards.find(b => b.id === boardId);
-                    setBoard(currentBoard || null);
-                }
-            } catch (error) {
-                console.error('Error fetching board:', error);
-            } finally {
-                setLoading(false);
-            }
-        }
+export default async function BoardPage({ params }: PageProps) {
+    const { userId } = await auth();
 
-        fetchBoard();
-    }, [boardId]);
+    if (!userId) {
+        redirect('/');
+    }
 
-    if (loading) {
-        return (
-            <div className="canvas-container">
-                <div className="canvas-loading">
-                    <div className="loading-spinner" />
-                    <p>Loading board...</p>
-                </div>
-            </div>
-        );
+    const { boardId } = await params;
+
+    // Fetch board with ownership check
+    const board = await db
+        .select()
+        .from(boards)
+        .where(and(eq(boards.id, boardId), eq(boards.userId, userId)));
+
+    if (board.length === 0) {
+        redirect('/chat');
+    }
+
+    // Fetch all chat blocks for this board with their messages
+    const blocks = await db
+        .select()
+        .from(chatBlocks)
+        .where(eq(chatBlocks.boardId, boardId));
+
+    // Fetch messages for all blocks
+    const blocksWithMessages: ChatBlockWithMessages[] = await Promise.all(
+        blocks.map(async (block) => {
+            const blockMessages = await db
+                .select()
+                .from(messages)
+                .where(eq(messages.chatBlockId, block.id))
+                .orderBy(messages.createdAt);
+
+            return {
+                id: block.id,
+                title: block.title,
+                positionX: block.positionX,
+                positionY: block.positionY,
+                messages: blockMessages.map((m) => ({
+                    id: m.id,
+                    role: m.role,
+                    content: m.content,
+                })),
+            };
+        })
+    );
+
+    // Fetch message links (footnotes)
+    // We want all links where the target block is in this board
+    // Filter outgoing links from messages in this board
+    const blockIds = blocks.map(b => b.id);
+    let links: typeof messageLinks.$inferSelect[] = [];
+
+    if (blockIds.length > 0) {
+        links = await db
+            .select()
+            .from(messageLinks)
+            .where(inArray(messageLinks.targetBlockId, blockIds));
     }
 
     return (
-        <div className="canvas-container">
-            <Canvas boardId={boardId} boardName={board?.name || 'Untitled Board'} />
-        </div>
+        <CanvasWrapper
+            boardId={boardId}
+            boardName={board[0].name}
+            initialBlocks={blocksWithMessages}
+            initialLinks={links}
+        />
     );
 }
