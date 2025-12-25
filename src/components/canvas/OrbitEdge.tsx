@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BaseEdge, EdgeProps, getBezierPath } from '@xyflow/react';
+import { BaseEdge, EdgeProps, getSmoothStepPath } from '@xyflow/react';
 
 export default function OrbitEdge({
   id,
@@ -13,13 +13,14 @@ export default function OrbitEdge({
   markerEnd,
   data,
 }: EdgeProps) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 20, // Optional: adds rounded corners
   });
 
   const orbRef = useRef<SVGCircleElement>(null);

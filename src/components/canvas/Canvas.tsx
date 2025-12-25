@@ -193,6 +193,7 @@ export default function Canvas({
                     id: `e-${sourceBlockId}-${link.targetBlockId}`,
                     source: sourceBlockId,
                     target: link.targetBlockId,
+                    type: 'smoothstep',
                     animated: false,
                     style: { stroke: 'var(--muted)', strokeWidth: 2 },
                     markerEnd: {
@@ -589,7 +590,7 @@ export default function Canvas({
                     target: newBlock.id,
                     sourceHandle: null,
                     targetHandle: null,
-                    type: 'orbit',
+                    type: 'smoothstep',
                     animated: false,
                     style: { stroke: 'var(--muted)', strokeWidth: 2 },
                     markerEnd: {

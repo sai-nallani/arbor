@@ -160,7 +160,8 @@ export default function EmbeddedChat({
                         const savedMessage = await response.json();
                         // Store the database ID for this message
                         // The assistant message will be at the current last position
-                        const msgIndex = messages.length; // This is the index where the new message will be
+                        // The assistant message is now part of the messages array, so its index is length - 1
+                        const msgIndex = messages.length - 1;
                         messageIdMapRef.current.set(msgIndex, savedMessage.id);
                         console.log('Saved assistant message with ID:', savedMessage.id, 'at index:', msgIndex);
                     }
@@ -208,7 +209,7 @@ export default function EmbeddedChat({
             }
         });
         // console.log('[MessageIdMap] After init:', Array.from(messageIdMapRef.current.entries()));
-    }, []); // Run once on mount
+    }, [initialMessages]); // Run when initialMessages changes (e.g. on maximize/refresh)
 
     const handleSend = async (content: string, images?: string[]) => {
         if (!content.trim() && (!images || images.length === 0)) return;
