@@ -30,8 +30,8 @@ function ImageNode({ id, data, selected }: NodeProps) {
             <div
                 className={`image-node ${selected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}`}
                 style={isExpanded ? {
-                    width: 400,
-                    height: 350,
+                    width: '100%',
+                    height: '100%',
                     minWidth: 250,
                     minHeight: 200,
                 } : undefined}
@@ -113,6 +113,15 @@ function ImageNode({ id, data, selected }: NodeProps) {
                         </div>
                     </div>
                 )}
+
+                {/* Resizer when expanded and selected - MUST be inside the node container */}
+                {isExpanded && selected && (
+                    <NodeResizer
+                        minWidth={250}
+                        minHeight={200}
+                        handleStyle={{ width: 8, height: 8, zIndex: 1000 }}
+                    />
+                )}
             </div>
 
             {/* Preview modal */}
@@ -138,14 +147,7 @@ function ImageNode({ id, data, selected }: NodeProps) {
                 </div>
             )}
 
-            {/* Resizer when expanded and selected */}
-            {isExpanded && selected && (
-                <NodeResizer
-                    minWidth={250}
-                    minHeight={200}
-                    handleStyle={{ width: 8, height: 8, zIndex: 1000 }}
-                />
-            )}
+
         </>
     );
 }

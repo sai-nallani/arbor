@@ -92,13 +92,18 @@ export default function EmbeddedChat({
         setRenameValue(title);
     }, [title]);
 
+    // Stable ref for onModelChange to avoid dependency issues (prevents infinite loops)
+    const onModelChangeRef = useRef(onModelChange);
+    useEffect(() => {
+        onModelChangeRef.current = onModelChange;
+    }, [onModelChange]);
+
     // Force switch to vision model if images are present and current model is not supported
     useEffect(() => {
         if (hasImagesInContext && !VISION_MODELS.includes(model)) {
-
-            onModelChange?.('openai/gpt-4.1');
+            onModelChangeRef.current?.('openai/gpt-4.1');
         }
-    }, [hasImagesInContext, model, onModelChange]);
+    }, [hasImagesInContext, model]);
 
     // Lock to vision model if images in context (Dedalus only supports OpenAI for images)
     // We keep this for render-time logic, but the useEffect above handles the actual state change
@@ -421,15 +426,7 @@ export default function EmbeddedChat({
                     </svg>
                 </div>
 
-                {/* Model Selector */}
-                <ModelSelector
-                    model={hasImagesInContext ? effectiveModel : model}
-                    options={modelOptions}
-                    onChange={(newModel: string) => onModelChange?.(newModel)}
-                    disabled={hasImagesInContext}
-                    disabledReason="Vision model required (images attached)"
-                />
-
+                {/* Title */}
                 {isRenaming ? (
                     <input
                         type="text"
@@ -475,9 +472,17 @@ export default function EmbeddedChat({
                     <h3 className="embedded-chat-title" style={{ flex: '0 0 auto', marginRight: 10 }}>{title}</h3>
                 )}
 
+                {/* Spacer to push actions to the right */}
+                <div style={{ flex: 1 }} />
 
-
-
+                {/* Model Selector - now to the left of actions */}
+                <ModelSelector
+                    model={hasImagesInContext ? effectiveModel : model}
+                    options={modelOptions}
+                    onChange={(newModel: string) => onModelChange?.(newModel)}
+                    disabled={hasImagesInContext}
+                    disabledReason="Vision model required (images attached)"
+                />
 
                 <div className="embedded-chat-actions">
                     {!isRenaming && (
@@ -532,7 +537,7 @@ export default function EmbeddedChat({
                                         top: '100%',
                                         right: 0,
                                         marginTop: '8px',
-                                        background: 'var(--bg-secondary)',
+                                        background: '#1a1a1a',
                                         border: '1px solid var(--border)',
                                         borderRadius: '8px',
                                         padding: '12px',

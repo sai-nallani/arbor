@@ -160,6 +160,7 @@ export default function Canvas({
                 id: file.id,
                 type: 'imageNode',
                 position: { x: file.positionX, y: file.positionY },
+                style: { width: 400, height: 350 },
                 data: {
                     id: file.id,
                     url: file.url,
@@ -229,6 +230,7 @@ export default function Canvas({
     const [needsInitialBlock, setNeedsInitialBlock] = useState(initialBlocks.length === 0);
     const [rfInstance, setRfInstance] = useState<any>(null); // React Flow instance
     const [showAddMenu, setShowAddMenu] = useState(false);
+    const [placementMode, setPlacementMode] = useState<'chat' | 'image' | null>(null);
     const initializingRef = useRef(false);
 
     // Ref for nodes to avoid dependency cycles in callbacks
@@ -704,6 +706,18 @@ export default function Canvas({
         }
     }, [needsInitialBlock, createBlock, setNodes]);
 
+    // Escape key to cancel placement mode
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && placementMode) {
+                setPlacementMode(null);
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [placementMode]);
+
     // Handle image upload completion
     const handleImageUploaded = useCallback((chatBlockId: string, imageInfo: { id: string; url: string; name: string, mimeType?: string }) => {
         // Robustness: if imageInfo is a string, it means arguments were mismatched
@@ -744,6 +758,7 @@ export default function Canvas({
                     id: imageNodeId,
                     type: 'imageNode',
                     position: { x: imageX, y: imageY },
+                    style: { width: 400, height: 350 },
                     data: {
                         id: imageInfo.id,
                         name: imageInfo.name,
@@ -933,8 +948,74 @@ export default function Canvas({
         setSelectedBlock(null);
     };
 
+    // Handle pane click for placement mode
+    const handlePaneClick = useCallback((event: React.MouseEvent) => {
+        if (!placementMode || !rfInstance) return;
+
+        // Get the click position in flow coordinates
+        const position = rfInstance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+        });
+
+        if (placementMode === 'chat') {
+            const clickX = position.x - 200;
+            const clickY = position.y - 100;
+
+            // Generate temporary ID for optimistic update
+            const tempId = `temp-${Date.now()}`;
+            const messages: Array<any> = [];
+
+            // Optimistic update - add block immediately
+            setBlockMessages((prev) => ({ ...prev, [tempId]: messages }));
+            setNodes((nds) => nds.concat({
+                id: tempId,
+                type: 'chatBlock',
+                position: { x: clickX, y: clickY },
+                data: {
+                    id: tempId,
+                    boardId: boardId,
+                    title: 'New Chat',
+                    model: 'anthropic/claude-sonnet-4-5-20250929',
+                    messages: messages,
+                    links: initialLinksMap,
+                    isExpanded: true, // Auto-expand new blocks
+                },
+            }));
+
+            // Create on server in background, then update with real ID
+            createBlock(clickX, clickY).then(newBlock => {
+                if (newBlock) {
+                    // Replace temp node with real node
+                    setNodes((nds) => nds.map(node => {
+                        if (node.id === tempId) {
+                            return {
+                                ...node,
+                                id: newBlock.id,
+                                data: {
+                                    ...node.data,
+                                    id: newBlock.id,
+                                },
+                            };
+                        }
+                        return node;
+                    }));
+
+                    // Update messages map with real ID
+                    setBlockMessages((prev) => {
+                        const { [tempId]: tempMessages, ...rest } = prev;
+                        return { ...rest, [newBlock.id]: tempMessages || [] };
+                    });
+                }
+            });
+        }
+
+        // Exit placement mode
+        setPlacementMode(null);
+    }, [placementMode, rfInstance, createBlock, setBlockMessages, setNodes, boardId, initialLinksMap]);
+
     return (
-        <div className="react-flow-canvas">
+        <div className={`react-flow-canvas ${placementMode ? 'placement-mode' : ''}`}>
             <ReactFlow
                 nodes={nodesWithCallbacks}
                 edges={edges}
@@ -960,6 +1041,8 @@ export default function Canvas({
                 minZoom={0.1}
                 maxZoom={2}
                 defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                onPaneClick={handlePaneClick}
+                style={placementMode ? { cursor: 'crosshair' } : undefined}
             >
                 <Background
                     variant={BackgroundVariant.Dots}
@@ -979,6 +1062,17 @@ export default function Canvas({
                     zoomable
                 />
             </ReactFlow>
+
+            {/* Placement Mode Instruction */}
+            {placementMode && (
+                <div className="placement-instruction">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 5v14M5 12h14" />
+                    </svg>
+                    <span>Click anywhere to place chat block</span>
+                    <span className="placement-hint">Press ESC to cancel</span>
+                </div>
+            )}
 
             {/* Chat Modal */}
             {selectedBlock && (
@@ -1008,25 +1102,7 @@ export default function Canvas({
                             className="add-dropdown-item"
                             onClick={() => {
                                 setShowAddMenu(false);
-                                createBlock().then(newBlock => {
-                                    if (newBlock) {
-                                        const messages: Array<any> = [];
-                                        setBlockMessages((prev) => ({ ...prev, [newBlock.id]: messages }));
-                                        setNodes((nds) => nds.concat({
-                                            id: newBlock.id,
-                                            type: 'chatBlock',
-                                            position: { x: newBlock.positionX, y: newBlock.positionY },
-                                            data: {
-                                                id: newBlock.id,
-                                                boardId: boardId,
-                                                title: newBlock.title,
-                                                model: newBlock.model || 'openai/gpt-5',
-                                                messages: messages,
-                                                links: initialLinksMap,
-                                            },
-                                        }));
-                                    }
-                                });
+                                setPlacementMode('chat');
                             }}
                         >
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1071,6 +1147,7 @@ export default function Canvas({
                                                     id: data.id,
                                                     type: 'imageNode',
                                                     position: { x: posX, y: posY },
+                                                    style: { width: 400, height: 350 },
                                                     data: {
                                                         id: data.id,
                                                         name: data.name,

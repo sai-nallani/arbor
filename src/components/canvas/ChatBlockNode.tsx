@@ -43,6 +43,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
     const [isEditing, setIsEditing] = useState(false);
     const [editTitle, setEditTitle] = useState(data.title);
     const [hasBeenResized, setHasBeenResized] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const lastMessage = data.messages[data.messages.length - 1];
 
     // Sync state if data.isExpanded changes (e.g. initial load vs client toggle)
@@ -66,6 +67,19 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
         setIsExpanded(false); // Collapse when maximizing
         data.onMaximize?.(data.id);
     }, [data]);
+
+    // Memoize callbacks passed to EmbeddedChat to prevent infinite update loops
+    const handleModelChange = useCallback((newModel: string) => {
+        data.onModelChange?.(data.id, newModel);
+    }, [data.id, data.onModelChange]);
+
+    const handleHasImageChange = useCallback((newHasImage: boolean) => {
+        data.onHasImageChange?.(data.id, newHasImage);
+    }, [data.id, data.onHasImageChange]);
+
+    const handleRenameFromChat = useCallback((newTitle: string) => {
+        data.onRename?.(data.id, newTitle);
+    }, [data.id, data.onRename]);
 
     const handleDelete = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();
@@ -129,12 +143,12 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                         links={data.links}
                         model={data.model}
                         branchContext={data.branchContext}
-                        onModelChange={(model) => data.onModelChange?.(data.id, model)}
+                        onModelChange={handleModelChange}
                         hasBeenResized={hasBeenResized}
                         hasImage={!!data.hasImage}
                         onImageUploaded={data.onImageUploaded}
-                        onHasImageChange={(hasImage) => data.onHasImageChange?.(data.id, hasImage)}
-                        onRename={(newTitle) => data.onRename?.(data.id, newTitle)}
+                        onHasImageChange={handleHasImageChange}
+                        onRename={handleRenameFromChat}
                     />
                 ) : (
                     <>
@@ -185,10 +199,80 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                                         <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
                                     </svg>
                                 </div>
-                                <div className="chat-block-btn delete" onClick={handleDelete} role="button" title="Delete">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
+                                <div style={{ position: 'relative' }}>
+                                    <div
+                                        className={`chat-block-btn delete ${showDeleteConfirm ? 'active' : ''}`}
+                                        onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(!showDeleteConfirm); }}
+                                        role="button"
+                                        title="Delete"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </div>
+                                    {showDeleteConfirm && (
+                                        <div
+                                            className="delete-confirm-popover"
+                                            style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                right: 0,
+                                                marginTop: '8px',
+                                                background: '#1a1a1a',
+                                                border: '1px solid var(--border)',
+                                                borderRadius: '8px',
+                                                padding: '12px',
+                                                zIndex: 100,
+                                                boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                                width: '180px',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '8px'
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                        >
+                                            <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                                                Delete this chat?
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button
+                                                    onClick={() => setShowDeleteConfirm(false)}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '6px',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid var(--border)',
+                                                        background: 'transparent',
+                                                        color: 'var(--text-secondary)',
+                                                        fontSize: '12px',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        handleDelete(e);
+                                                        setShowDeleteConfirm(false);
+                                                    }}
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '6px',
+                                                        borderRadius: '4px',
+                                                        border: 'none',
+                                                        background: '#ef4444',
+                                                        color: 'white',
+                                                        fontSize: '12px',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 500
+                                                    }}
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
