@@ -54,6 +54,12 @@ interface FileLinkData {
     fileNodeId: string;
 }
 
+interface ContextLinkData {
+    id: string;
+    sourceBlockId: string;
+    targetBlockId: string;
+}
+
 interface CanvasWrapperProps {
     boardId: string;
     boardName: string;
@@ -61,6 +67,7 @@ interface CanvasWrapperProps {
     initialLinks?: MessageLink[];
     initialFiles?: FileNodeData[];
     initialFileLinks?: FileLinkData[];
+    initialContextLinks?: ContextLinkData[];
 }
 
 export default function CanvasWrapper({
@@ -69,7 +76,8 @@ export default function CanvasWrapper({
     initialBlocks,
     initialLinks,
     initialFiles,
-    initialFileLinks
+    initialFileLinks,
+    initialContextLinks
 }: CanvasWrapperProps) {
     return (
         <div className="canvas-container">
@@ -80,6 +88,7 @@ export default function CanvasWrapper({
                 initialLinks={initialLinks}
                 initialFiles={initialFiles}
                 initialFileLinks={initialFileLinks}
+                initialContextLinks={initialContextLinks}
             />
         </div>
     );

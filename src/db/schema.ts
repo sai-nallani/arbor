@@ -75,6 +75,18 @@ export const fileLinks = pgTable('file_links', {
     uniqueIndex('file_links_unique_idx').on(table.chatBlockId, table.fileNodeId),
 ]);
 
+// Context links - directed edges for context sharing between chat blocks
+// If A → B exists, B includes A's message history as context
+export const contextLinks = pgTable('context_links', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sourceBlockId: uuid('source_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
+    targetBlockId: uuid('target_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    // Prevent duplicate links between same source and target
+    uniqueIndex('context_links_unique_idx').on(table.sourceBlockId, table.targetBlockId),
+]);
+
 // ============================================
 // RELATIONS
 // ============================================
@@ -166,7 +178,18 @@ export const chatBlocksRelations = relations(chatBlocks, ({ one, many }) => ({
     messages: many(messages),
     fileLinks: many(fileLinks),
     incomingLinks: many(messageLinks, { relationName: 'targetBlock' }),
+    // Context links for context sharing between blocks
+    contextSources: many(contextLinks, { relationName: 'contextTarget' }), // Blocks providing context TO this block
+    contextTargets: many(contextLinks, { relationName: 'contextSource' }), // Blocks receiving context FROM this block
+}));
+
+export const contextLinksRelations = relations(contextLinks, ({ one }) => ({
+    sourceBlock: one(chatBlocks, { fields: [contextLinks.sourceBlockId], references: [chatBlocks.id], relationName: 'contextSource' }),
+    targetBlock: one(chatBlocks, { fields: [contextLinks.targetBlockId], references: [chatBlocks.id], relationName: 'contextTarget' }),
 }));
 
 export type MessageLink = typeof messageLinks.$inferSelect;
 export type NewMessageLink = typeof messageLinks.$inferInsert;
+
+export type ContextLink = typeof contextLinks.$inferSelect;
+export type NewContextLink = typeof contextLinks.$inferInsert;

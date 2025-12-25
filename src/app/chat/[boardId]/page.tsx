@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
-import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks } from '@/db/schema';
+import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks, contextLinks } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import CanvasWrapper from '@/components/canvas/CanvasWrapper';
 
@@ -103,6 +103,21 @@ export default async function BoardPage({ params }: PageProps) {
             .where(inArray(messageLinks.sourceMessageId, allMessageIds));
     }
 
+    // Fetch context links between chat blocks on this board
+    const blockIds = blocks.map(b => b.id);
+    let contextLinksData: { id: string; sourceBlockId: string; targetBlockId: string }[] = [];
+    if (blockIds.length > 0) {
+        const rawLinks = await db
+            .select({
+                id: contextLinks.id,
+                sourceBlockId: contextLinks.sourceBlockId,
+                targetBlockId: contextLinks.targetBlockId,
+            })
+            .from(contextLinks)
+            .where(inArray(contextLinks.sourceBlockId, blockIds));
+        contextLinksData = rawLinks;
+    }
+
     return (
         <CanvasWrapper
             boardId={boardId}
@@ -111,6 +126,7 @@ export default async function BoardPage({ params }: PageProps) {
             initialLinks={footnotes}
             initialFiles={files}
             initialFileLinks={linksData.map(l => l.file_links)}
+            initialContextLinks={contextLinksData}
         />
     );
 }

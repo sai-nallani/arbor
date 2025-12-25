@@ -315,6 +315,24 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     className="chat-block-handle"
                     id="bottom"
                 />
+
+                {/* Context link handles - right side for outgoing context */}
+                <Handle
+                    type="source"
+                    position={Position.Right}
+                    className="chat-block-handle context-handle"
+                    id="context-out"
+                    style={{ top: '50%' }}
+                />
+
+                {/* Context link handles - left side for incoming context */}
+                <Handle
+                    type="target"
+                    position={Position.Left}
+                    className="chat-block-handle context-handle"
+                    id="context-in"
+                    style={{ top: '50%' }}
+                />
             </div>
 
             {/* Resizer only active when expanded and selected - moved to end for z-index */}

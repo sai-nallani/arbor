@@ -21,6 +21,7 @@ import ChatBlockNode from './ChatBlockNode';
 import ImageNode from './ImageNode';
 import ChatModal from '../chat/ChatModal';
 import OrbitEdge from './OrbitEdge';
+import ContextEdge from './ContextEdge';
 
 // Define custom node types
 const nodeTypes = {
@@ -30,6 +31,7 @@ const nodeTypes = {
 
 const edgeTypes = {
     orbit: OrbitEdge,
+    context: ContextEdge,
 };
 
 interface ChatBlockWithMessages {
@@ -72,6 +74,12 @@ interface FileLinkData {
     fileNodeId: string;
 }
 
+interface ContextLinkData {
+    id: string;
+    sourceBlockId: string;
+    targetBlockId: string;
+}
+
 interface SelectedBlockData {
     id: string;
     title: string;
@@ -85,6 +93,7 @@ interface CanvasProps {
     initialLinks?: MessageLink[];
     initialFiles?: FileNodeData[];
     initialFileLinks?: FileLinkData[];
+    initialContextLinks?: ContextLinkData[];
 }
 
 export default function Canvas({
@@ -93,7 +102,8 @@ export default function Canvas({
     initialBlocks = [],
     initialLinks = [],
     initialFiles = [],
-    initialFileLinks = []
+    initialFileLinks = [],
+    initialContextLinks = []
 }: CanvasProps) {
     // Process initial links into a map
     const initialLinksMap = useMemo(() => {
@@ -219,8 +229,25 @@ export default function Canvas({
             });
         });
 
+        // Add Context Links (Context Edges)
+        initialContextLinks.forEach(link => {
+            edges.push({
+                id: `context-${link.sourceBlockId}-${link.targetBlockId}`,
+                source: link.sourceBlockId,
+                target: link.targetBlockId,
+                sourceHandle: 'context-out',
+                targetHandle: 'context-in',
+                type: 'context',
+                animated: false,
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: '#A67B5B',
+                },
+            });
+        });
+
         return edges;
-    }, [initialLinks, initialFileLinks, initialBlocks]);
+    }, [initialLinks, initialFileLinks, initialContextLinks, initialBlocks]);
 
 
 
@@ -231,6 +258,7 @@ export default function Canvas({
     const [rfInstance, setRfInstance] = useState<any>(null); // React Flow instance
     const [showAddMenu, setShowAddMenu] = useState(false);
     const [placementMode, setPlacementMode] = useState<'chat' | 'image' | null>(null);
+    const [errorToast, setErrorToast] = useState<string | null>(null);
     const initializingRef = useRef(false);
 
     // Ref for nodes to avoid dependency cycles in callbacks
@@ -273,6 +301,128 @@ export default function Canvas({
             };
         }));
     }, [setEdges]);
+
+    // Create a context link between two chat blocks
+    const createContextLink = useCallback(async (sourceBlockId: string, targetBlockId: string) => {
+        try {
+            const response = await fetch('/api/context-links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceBlockId, targetBlockId }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                console.warn('Context link creation blocked:', error.error);
+
+                // Show user-friendly error toast
+                const errorMessage = error.error || 'Failed to create context link';
+                setErrorToast(errorMessage);
+                setTimeout(() => setErrorToast(null), 4000); // Auto-dismiss after 4 seconds
+
+                // Remove optimistic edge on failure
+                setEdges((eds) => eds.filter(e => e.id !== `context-${sourceBlockId}-${targetBlockId}`));
+                return;
+            }
+
+            console.log('Context link created:', sourceBlockId, '→', targetBlockId);
+        } catch (error) {
+            console.warn('Context link network error:', error);
+            setErrorToast('Network error creating context link');
+            setTimeout(() => setErrorToast(null), 4000);
+            // Remove optimistic edge on failure
+            setEdges((eds) => eds.filter(e => e.id !== `context-${sourceBlockId}-${targetBlockId}`));
+        }
+    }, [setEdges]);
+
+    // Delete a context link
+    const deleteContextLink = useCallback(async (edgeId: string) => {
+        // Find the edge to get source and target IDs
+        let sourceId: string | undefined;
+        let targetId: string | undefined;
+
+        setEdges((eds) => {
+            const edge = eds.find(e => e.id === edgeId);
+            if (edge) {
+                sourceId = edge.source;
+                targetId = edge.target;
+            }
+            return eds.filter(e => e.id !== edgeId);
+        });
+
+        // Wait for state update to get the values
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        if (!sourceId || !targetId) {
+            console.error('Could not determine source/target for context link deletion');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/context-links?sourceBlockId=${sourceId}&targetBlockId=${targetId}`, {
+                method: 'DELETE',
+            });
+            if (response.ok) {
+                console.log('Context link deleted:', sourceId, '→', targetId);
+            } else {
+                console.error('Failed to delete context link:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error deleting context link:', error);
+        }
+    }, [setEdges]);
+
+    // Inject onDelete callbacks into context edges loaded from database
+    useEffect(() => {
+        setEdges((eds) => eds.map(edge => {
+            if (edge.type === 'context' && !edge.data?.onDelete) {
+                return {
+                    ...edge,
+                    data: {
+                        ...edge.data,
+                        onDelete: deleteContextLink,
+                    },
+                };
+            }
+            return edge;
+        }));
+    }, [deleteContextLink, setEdges]);
+
+    // Handle new connections (user dragging from one node to another)
+    const onConnect: OnConnect = useCallback((connection) => {
+        // Only allow connections between chatBlocks
+        const sourceNode = nodesRef.current.find(n => n.id === connection.source);
+        const targetNode = nodesRef.current.find(n => n.id === connection.target);
+
+        if (!sourceNode || !targetNode) return;
+        if (sourceNode.type !== 'chatBlock' || targetNode.type !== 'chatBlock') return;
+
+        // Prevent self-connections
+        if (connection.source === connection.target) return;
+
+        // Add edge optimistically
+        const newEdge: Edge = {
+            id: `context-${connection.source}-${connection.target}`,
+            source: connection.source!,
+            target: connection.target!,
+            sourceHandle: 'context-out',
+            targetHandle: 'context-in',
+            type: 'context',
+            animated: false,
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: '#A67B5B',
+            },
+            data: {
+                onDelete: deleteContextLink,
+            },
+        };
+
+        setEdges((eds) => addEdge(newEdge, eds));
+
+        // Create in database
+        createContextLink(connection.source!, connection.target!);
+    }, [setEdges, createContextLink, deleteContextLink]);
 
     // Delete a block
     const deleteBlock = useCallback(async (blockId: string) => {
@@ -938,11 +1088,6 @@ export default function Canvas({
     }, [onNodesChange]); // Removed 'nodes' dependency
 
 
-    const onConnect: OnConnect = useCallback(
-        (params) => setEdges((eds) => addEdge(params, eds)),
-        [setEdges]
-    );
-
     // Handle modal close - refresh messages from cache
     const handleModalClose = () => {
         setSelectedBlock(null);
@@ -1062,6 +1207,18 @@ export default function Canvas({
                     zoomable
                 />
             </ReactFlow>
+
+            {/* Error Toast */}
+            {errorToast && (
+                <div className="error-toast" onClick={() => setErrorToast(null)}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="15" y1="9" x2="9" y2="15" />
+                        <line x1="9" y1="9" x2="15" y2="15" />
+                    </svg>
+                    <span>{errorToast}</span>
+                </div>
+            )}
 
             {/* Placement Mode Instruction */}
             {placementMode && (

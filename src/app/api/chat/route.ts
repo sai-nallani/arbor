@@ -9,8 +9,8 @@ import { auth } from '@clerk/nextjs/server';
 import Dedalus, { DedalusRunner } from 'dedalus-labs';
 import { streamToWebResponse } from 'dedalus-react/server';
 import { db } from '@/db';
-import { messages, chatBlocks, aiErrorLogs } from '@/db/schema';
-import { eq, inArray } from 'drizzle-orm';
+import { messages, chatBlocks, aiErrorLogs, contextLinks } from '@/db/schema';
+import { eq, inArray, asc } from 'drizzle-orm';
 
 const client = new Dedalus({
     apiKey: process.env.DEDALUS_API_KEY,
@@ -21,8 +21,12 @@ const runner = new DedalusRunner(client);
 const SYSTEM_PROMPT = `You are a helpful AI assistant. You must use LaTeX formatting for all mathematical expressions. IMPORTANT: You MUST use dollar signs ($) for inline math (e.g., $E=mc^2$) and double dollar signs ($$) for block math. Do NOT use \\( ... \\) or \\[ ... \\] delimiters. You must strictly follow Markdown formatting rules for all output. Add appropriate spacing and paragraphing when necessary. Make it readable for the user.`;
 
 export async function POST(req: NextRequest) {
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`\n========== [CHAT ${requestId}] NEW REQUEST ==========`);
+
     try {
         const { userId } = await auth();
+        console.log(`[CHAT ${requestId}] User: ${userId || 'UNAUTHORIZED'}`);
 
         if (!userId) {
             return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -34,35 +38,79 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const { messages: chatMessages, model, chatBlockId, isSearchEnabled, branchContext, imageUrls } = body;
 
+        console.log(`[CHAT ${requestId}] Block: ${chatBlockId}`);
+        console.log(`[CHAT ${requestId}] Model requested: ${model}`);
+        console.log(`[CHAT ${requestId}] Search enabled: ${isSearchEnabled}`);
+        console.log(`[CHAT ${requestId}] Has branchContext: ${!!branchContext}`);
+        console.log(`[CHAT ${requestId}] Incoming messages count: ${chatMessages?.length || 0}`);
+
         if (!chatMessages || !Array.isArray(chatMessages)) {
+            console.log(`[CHAT ${requestId}] ERROR: Messages required`);
             return new Response(JSON.stringify({ error: 'Messages required' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
 
+        // Log incoming messages summary
+        console.log(`[CHAT ${requestId}] --- Incoming Messages ---`);
+        chatMessages.forEach((msg: any, i: number) => {
+            if (typeof msg.content === 'string') {
+                const preview = msg.content.substring(0, 100);
+                console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: ${preview}${msg.content.length > 100 ? '...' : ''}`);
+            } else {
+                // Print full array content for multipart messages
+                console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: [MULTIPART] ${JSON.stringify(msg.content)}`);
+            }
+        });
+
         // NOTE: User message saving is now handled in EmbeddedChat.tsx to capture the database ID
         // for branch linking. Do not save here to avoid duplicates.
 
         // Build messages for AI, including context if branched
         // First, clean up the messages - remove empty content and obvious duplicates
+        console.log(`[CHAT ${requestId}] --- Cleaning Messages ---`);
         const cleanMessages = chatMessages.filter((msg: any, index: number, arr: any[]) => {
             // Remove messages with empty content
-            if (!msg.content || (typeof msg.content === 'string' && !msg.content.trim())) {
+            const isEmpty = !msg.content || (typeof msg.content === 'string' && !msg.content.trim());
+            if (isEmpty) {
+                console.log(`[CHAT ${requestId}]   REMOVING [${index}] ${msg.role}: empty content (type: ${typeof msg.content}, value: ${JSON.stringify(msg.content)?.substring(0, 50)})`);
                 return false;
             }
             // Remove consecutive duplicates (same role and content)
             if (index > 0) {
                 const prev = arr[index - 1];
                 if (prev.role === msg.role && prev.content === msg.content) {
+                    console.log(`[CHAT ${requestId}]   REMOVING [${index}] ${msg.role}: duplicate of previous`);
                     return false;
                 }
             }
             return true;
         });
+        console.log(`[CHAT ${requestId}] After cleaning: ${cleanMessages.length} of ${chatMessages.length} messages kept`);
+
+        // Fix consecutive user messages by inserting placeholder assistant responses
+        // This can happen when previous AI responses were empty/null
+        const repairedMessages: any[] = [];
+        for (let i = 0; i < cleanMessages.length; i++) {
+            const msg = cleanMessages[i];
+            if (i > 0 && msg.role === 'user' && repairedMessages[repairedMessages.length - 1]?.role === 'user') {
+                // Insert placeholder assistant message
+                console.log(`[CHAT ${requestId}]   INSERTING placeholder assistant between [${i - 1}] and [${i}] to fix consecutive users`);
+                repairedMessages.push({
+                    role: 'assistant',
+                    content: 'I apologize, but I was unable to respond to that. Could you please try again or rephrase your question?'
+                });
+            }
+            repairedMessages.push(msg);
+        }
+
+        if (repairedMessages.length !== cleanMessages.length) {
+            console.log(`[CHAT ${requestId}] After repair: ${repairedMessages.length} messages (added ${repairedMessages.length - cleanMessages.length} placeholders)`);
+        }
 
         // process current messages to inject hidden context
-        const processedCurrentMessages = cleanMessages.map((msg: any) => {
+        const processedCurrentMessages = repairedMessages.map((msg: any) => {
             if (msg.hiddenContext && typeof msg.content === 'string') {
                 return {
                     ...msg,
@@ -72,9 +120,72 @@ export async function POST(req: NextRequest) {
             return msg;
         });
 
-        // Initialize with system prompt + current messages
+        // Fetch context from linked source blocks (context links feature)
+        console.log(`[CHAT ${requestId}] --- Fetching Context Links ---`);
+        let contextFromLinks: any[] = [];
+        if (chatBlockId) {
+            // Get all source blocks that provide context to this block (transitively)
+            const getSourceBlockIds = async (blockId: string): Promise<string[]> => {
+                const sources: string[] = [];
+                const visited = new Set<string>();
+                const queue: string[] = [blockId];
+
+                while (queue.length > 0) {
+                    const current = queue.shift()!;
+                    if (visited.has(current)) continue;
+                    visited.add(current);
+
+                    // Get blocks that provide context TO this block
+                    const links = await db
+                        .select({ sourceId: contextLinks.sourceBlockId })
+                        .from(contextLinks)
+                        .where(eq(contextLinks.targetBlockId, current));
+
+                    for (const link of links) {
+                        if (!visited.has(link.sourceId)) {
+                            sources.push(link.sourceId);
+                            queue.push(link.sourceId);
+                        }
+                    }
+                }
+
+                return sources;
+            };
+
+            const sourceBlockIds = await getSourceBlockIds(chatBlockId);
+            console.log(`[CHAT ${requestId}] Source blocks found: ${sourceBlockIds.length}`);
+            if (sourceBlockIds.length > 0) {
+                console.log(`[CHAT ${requestId}] Source IDs: ${sourceBlockIds.map(id => id.substring(0, 8)).join(', ')}`);
+                // Fetch messages from all source blocks, ordered by creation time
+                const contextMessages = await db
+                    .select({
+                        role: messages.role,
+                        content: messages.content,
+                        createdAt: messages.createdAt,
+                    })
+                    .from(messages)
+                    .where(inArray(messages.chatBlockId, sourceBlockIds))
+                    .orderBy(asc(messages.createdAt));
+
+                contextFromLinks = contextMessages.map(m => ({
+                    role: m.role,
+                    content: m.content
+                }));
+                console.log(`[CHAT ${requestId}] Context messages from links: ${contextFromLinks.length}`);
+                contextFromLinks.forEach((msg: any, i: number) => {
+                    const content = typeof msg.content === 'string' ? msg.content.substring(0, 80) : '[multipart]';
+                    console.log(`[CHAT ${requestId}]   [ctx ${i}] ${msg.role}: ${content}${content.length >= 80 ? '...' : ''}`);
+                });
+            }
+        } else {
+            console.log(`[CHAT ${requestId}] No chatBlockId, skipping context links`);
+        }
+
+        // Initialize with system prompt + context from links + current messages
         let aiMessages = [
             { role: 'system', content: SYSTEM_PROMPT },
+            ...contextFromLinks,
+            ...(contextFromLinks.length > 0 ? [{ role: 'system', content: '[End of context from linked conversations. The following is the current conversation.]' }] : []),
             ...processedCurrentMessages
         ];
 
@@ -196,48 +307,112 @@ export async function POST(req: NextRequest) {
 
         // Create streaming response using Dedalus
         let targetModel = model || 'anthropic/claude-opus-4-5';
+        console.log(`[CHAT ${requestId}] Initial model: ${targetModel}`);
 
         // Check if ANY message has images to enforce vision model
         const hasImages = aiMessages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'));
+        console.log(`[CHAT ${requestId}] Has images: ${hasImages}`);
 
         if (hasImages) {
             // Dedalus only supports OpenAI for images currently
             if (!targetModel.startsWith('openai/') || targetModel === 'openai/gpt-5' || targetModel === 'openai/gpt-5-pro' || targetModel === 'openai/gpt-5-mini' || targetModel === 'openai/o3' || targetModel === 'openai/o3-pro') {
-                console.log(`Auto-switching model from ${targetModel} to openai/gpt-4.1 for image support`);
+                console.log(`[CHAT ${requestId}] Auto-switching to openai/gpt-4.1 for vision`);
                 targetModel = 'openai/gpt-4.1';
             }
         }
 
-
-        const stream = await runner.run({
-            messages: aiMessages,
-            model: targetModel,
-            stream: true,
-            mcp_servers: isSearchEnabled ? ['https://mcp.exa.ai/mcp'] : undefined,
+        // Log final message array summary
+        console.log(`[CHAT ${requestId}] --- FINAL AI MESSAGES (${aiMessages.length} total) ---`);
+        aiMessages.forEach((msg: any, i: number) => {
+            const content = typeof msg.content === 'string'
+                ? msg.content.substring(0, 100)
+                : Array.isArray(msg.content)
+                    ? `[multipart: ${msg.content.length} parts]`
+                    : '[unknown]';
+            console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: ${content}${content.length >= 100 ? '...' : ''}`);
         });
 
-        // Wrap stream to monitor for errors (empty or "...")
-        // We need to cast to AsyncIterable to iterate
+        // FULL JSON DUMP FOR DEBUGGING
+        console.log(`[CHAT ${requestId}] === FULL MESSAGES JSON ===`);
+        console.log(JSON.stringify(aiMessages, null, 2));
+        console.log(`[CHAT ${requestId}] === END FULL JSON ===`);
+
+        console.log(`[CHAT ${requestId}] Calling Dedalus with model: ${targetModel}`);
+
+        // Helper function to run with a model and stream response
+        const runWithModel = async (model: string) => {
+            const stream = await runner.run({
+                messages: aiMessages,
+                model,
+                stream: true,
+                mcp_servers: isSearchEnabled ? ['https://mcp.exa.ai/mcp'] : undefined,
+            });
+            return stream;
+        };
+
+        let stream = await runWithModel(targetModel);
+        console.log(`[CHAT ${requestId}] Stream created successfully`);
+
+        // Wrap stream to monitor for errors and handle empty responses
         const wrappedStream = async function* () {
             let fullContent = '';
+            let chunkCount = 0;
+            let usedModel = targetModel;
+            let currentStream: any = stream;
+            let retried = false;
+
             try {
-                for await (const chunk of (stream as any)) {
-                    // Accumulate content to check for validity
+                for await (const chunk of currentStream) {
+                    chunkCount++;
+
+                    // Log first few chunks for debugging
+                    if (chunkCount <= 3) {
+                        console.log(`[CHAT ${requestId}] Chunk ${chunkCount}:`, JSON.stringify(chunk).substring(0, 300));
+                    }
+
                     const content = chunk.choices?.[0]?.delta?.content || '';
+                    const finishReason = chunk.choices?.[0]?.finish_reason;
+
+                    // Detect immediate empty response with stop (model refusal)
+                    if (chunkCount === 1 && content === '' && finishReason === 'stop' && !retried) {
+                        console.error(`[CHAT ${requestId}] ⚠️ Model returned empty immediately - retrying with gpt-4.1`);
+                        retried = true;
+                        usedModel = 'openai/gpt-4.1';
+
+                        // Get new stream with fallback model
+                        currentStream = await runWithModel(usedModel);
+
+                        // Iterate over new stream
+                        for await (const retryChunk of currentStream) {
+                            chunkCount++;
+                            if (chunkCount <= 5) {
+                                console.log(`[CHAT ${requestId}] Retry Chunk ${chunkCount - 1}:`, JSON.stringify(retryChunk).substring(0, 300));
+                            }
+                            const retryContent = retryChunk.choices?.[0]?.delta?.content || '';
+                            if (retryContent) fullContent += retryContent;
+                            yield retryChunk;
+                        }
+                        return; // Exit after retry stream completes
+                    }
+
                     if (content) fullContent += content;
                     yield chunk;
                 }
+            } catch (streamError) {
+                console.error(`[CHAT ${requestId}] Stream error:`, streamError);
+                throw streamError;
             } finally {
-                // Check if output was invalid
+                console.log(`[CHAT ${requestId}] Stream finished. Model: ${usedModel}, Chunks: ${chunkCount}, Content length: ${fullContent.length}`);
                 const trimmed = fullContent.trim();
                 if (!trimmed || trimmed === '...' || trimmed === '') {
-                    console.warn('[API/Chat] Invalid AI response detected:', fullContent);
+                    console.error(`[CHAT ${requestId}] ⚠️ INVALID RESPONSE - empty or ellipsis`);
+                    console.error(`[CHAT ${requestId}] Raw output: "${fullContent}"`);
 
                     // Log to database (fire and forget)
                     db.insert(aiErrorLogs).values({
                         userId: userId || 'anonymous',
-                        model: targetModel,
-                        inputMessages: aiMessages as any, // Cast JSON
+                        model: usedModel,
+                        inputMessages: aiMessages as any,
                         errorType: !trimmed ? 'empty_content' : 'ellipsis_error',
                         rawOutput: fullContent
                     }).catch(err => console.error('Failed to log AI error:', err));
@@ -255,3 +430,4 @@ export async function POST(req: NextRequest) {
         });
     }
 }
+
