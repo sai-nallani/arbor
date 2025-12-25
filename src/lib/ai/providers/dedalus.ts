@@ -36,7 +36,7 @@ export class DedalusProvider implements AIProvider {
             model: options.model || DEFAULT_MODEL,
             messages: options.messages,
             stream: true,
-        });
+        }) as AsyncIterableIterator<any>;
 
         // Transform the Dedalus stream into our AIStreamChunk format
         const self = this;

@@ -23,8 +23,8 @@ export default function OrbitEdge({
   });
 
   const orbRef = useRef<SVGCircleElement>(null);
-  const requestRef = useRef<number>();
-  const startTimeRef = useRef<number>();
+  const requestRef = useRef<number | undefined>(undefined);
+  const startTimeRef = useRef<number | undefined>(undefined);
   const [isAnimating, setIsAnimating] = useState(false);
 
   useEffect(() => {
