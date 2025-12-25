@@ -21,8 +21,10 @@ interface ChatMessageProps {
 
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+
 
 // ... (keep interface)
 
@@ -73,7 +75,7 @@ function ChatMessage({ role, content, isStreaming, onMouseUp, links, highlightSt
                 segments.push(
                     <ReactMarkdown
                         key={`text-${lastIndex}`}
-                        remarkPlugins={[remarkMath]}
+                        remarkPlugins={[remarkMath, remarkGfm]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
                             p: ({ children }) => <span style={{ display: 'inline' }}>{children}</span>,
@@ -150,7 +152,7 @@ function ChatMessage({ role, content, isStreaming, onMouseUp, links, highlightSt
             segments.push(
                 <ReactMarkdown
                     key={`text-${lastIndex}`}
-                    remarkPlugins={[remarkMath]}
+                    remarkPlugins={[remarkMath, remarkGfm]}
                     rehypePlugins={[rehypeKatex]}
                     components={{
                         p: ({ children }) => <span style={{ display: 'inline' }}>{children}</span>,
@@ -167,7 +169,7 @@ function ChatMessage({ role, content, isStreaming, onMouseUp, links, highlightSt
             segments.push(
                 <ReactMarkdown
                     key="full-content"
-                    remarkPlugins={[remarkMath]}
+                    remarkPlugins={[remarkMath, remarkGfm]}
                     rehypePlugins={[rehypeKatex]}
                 >
                     {cleanText}

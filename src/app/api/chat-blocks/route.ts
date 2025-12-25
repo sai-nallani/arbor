@@ -71,7 +71,8 @@ export async function POST(request: NextRequest) {
             sourceMessageId, // For linking
             quoteStart,
             quoteEnd,
-            quoteText
+            quoteText,
+            hasImage
         } = body;
 
         if (!boardId) {
@@ -89,42 +90,45 @@ export async function POST(request: NextRequest) {
         }
 
         // Transactional creation
-        console.log('[POST /api/chat-blocks] Starting transaction...');
+
         const result = await db.transaction(async (tx) => {
             // 1. Create the chat block
-            console.log('[POST /api/chat-blocks] Inserting block...');
+
             const [newBlock] = await tx
                 .insert(chatBlocks)
                 .values({
                     boardId,
                     title: title || 'New Chat',
-                    model: body.model || 'openai/gpt-5',
+                    model: body.model || 'anthropic/claude-opus-4-5',
                     positionX: positionX ?? 250,
                     positionY: positionY ?? 150,
                     parentId: parentId || null,
                     branchContext: branchContext || null,
                     branchSourceText: branchSourceText || quoteText || null,
+                    hasImage: !!hasImage,
                 })
                 .returning();
 
-            console.log('[POST /api/chat-blocks] Block created with ID:', newBlock.id);
+
 
             // 2. Clone initial messages if provided
+            let createdMessages: any[] = [];
             if (initialMessages && Array.isArray(initialMessages) && initialMessages.length > 0) {
-                console.log(`[POST /api/chat-blocks] Cloning ${initialMessages.length} messages...`);
-                await tx.insert(messages).values(
+
+                createdMessages = await tx.insert(messages).values(
                     initialMessages.map((msg: any) => ({
                         chatBlockId: newBlock.id,
                         role: msg.role,
                         content: msg.content,
+                        hiddenContext: msg.hiddenContext || null
                     }))
-                );
+                ).returning();
             }
 
             // 3. Create message link if source provided
             let linkId = null;
             if (sourceMessageId && quoteStart !== undefined && quoteEnd !== undefined) {
-                console.log('[POST /api/chat-blocks] Creating message link...');
+
                 const [newLink] = await tx.insert(messageLinks).values({
                     sourceMessageId,
                     targetBlockId: newBlock.id,
@@ -136,10 +140,10 @@ export async function POST(request: NextRequest) {
                 console.log('[POST /api/chat-blocks] Message link created with ID:', linkId);
             }
 
-            return { ...newBlock, linkId };
+            return { ...newBlock, linkId, messages: createdMessages };
         });
 
-        console.log('[POST /api/chat-blocks] Transaction SUCCESS, returning:', JSON.stringify(result));
+
         return NextResponse.json(result, { status: 201 });
     } catch (error) {
         console.error('Error creating chat block:', error);

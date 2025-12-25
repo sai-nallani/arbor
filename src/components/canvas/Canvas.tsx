@@ -193,6 +193,8 @@ export default function Canvas({
                     id: `e-${sourceBlockId}-${link.targetBlockId}`,
                     source: sourceBlockId,
                     target: link.targetBlockId,
+                    sourceHandle: 'bottom',
+                    targetHandle: 'top',
                     type: 'smoothstep',
                     animated: false,
                     style: { stroke: 'var(--muted)', strokeWidth: 2 },
@@ -222,12 +224,27 @@ export default function Canvas({
 
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>(initialNodes);
-    const [edges, setEdges, onEdgesState] = useEdgesState<Edge>(initialEdges);
+    const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
     const [selectedBlock, setSelectedBlock] = useState<SelectedBlockData | null>(null);
     const [needsInitialBlock, setNeedsInitialBlock] = useState(initialBlocks.length === 0);
     const [rfInstance, setRfInstance] = useState<any>(null); // React Flow instance
     const [showAddMenu, setShowAddMenu] = useState(false);
     const initializingRef = useRef(false);
+
+    // Ref for nodes to avoid dependency cycles in callbacks
+    const nodesRef = useRef(nodes);
+    useEffect(() => {
+        nodesRef.current = nodes;
+    }, [nodes]);
+
+    // Helper to get real DB ID from message index
+    const getMessageId = (blockId: string, index: number) => {
+        const block = nodesRef.current.find(n => n.id === blockId);
+        if (block && block.data && (block.data as any).messages && (block.data as any).messages[index]) {
+            return (block.data as any).messages[index].id;
+        }
+        return null;
+    };
 
     // Handle link click to highlight edge and animate orb
     const handleLinkClick = useCallback((sourceBlockId: string, targetBlockId: string) => {
@@ -259,10 +276,7 @@ export default function Canvas({
     const deleteBlock = useCallback(async (blockId: string) => {
         console.log('Attempting to delete block:', blockId);
 
-        if (!window.confirm('Are you sure you want to delete this chat?')) {
-            console.log('Delete cancelled by user');
-            return;
-        }
+
 
         console.log('Proceeding with delete for block:', blockId);
 
@@ -439,7 +453,7 @@ export default function Canvas({
         quoteText: string,
         contextMessages: any[]
     ) => {
-        console.log('Branching from block:', parentBlockId);
+
 
         // Find parent position
         const parentNode = nodes.find(n => n.id === parentBlockId);
@@ -495,14 +509,46 @@ export default function Canvas({
 
         // Context string for AI/DB - include the highlighted text so AI knows what user is referring to
         // Refactored to store array of message IDs as requested
-        const branchContextIds = history.map((m: any) => m.id).filter(Boolean);
+
+        // RECURSIVE CONTEXT:
+        // We need to include the parent's branchContext (grandparent context) + the new history from this block
+        let parentContextIds: string[] = [];
+        if (parentNode && parentNode.data.branchContext) {
+            if (Array.isArray(parentNode.data.branchContext)) {
+                parentContextIds = parentNode.data.branchContext as string[];
+            }
+            // If it's a JSON string (legacy), parse it? 
+            // The type definition says string[] | undefined mostly now in practice, but let's be safe later if needed.
+            // For now assuming array of strings as per new schema usage.
+        }
+
+        const currentHistoryIds = history.map((m: any) => m.id).filter(Boolean);
+
+        // Combine and deduplicate
+        // Use Set to ensure no duplicates, though strictly appending should be fine in a tree
+        const branchContextIds = Array.from(new Set([...parentContextIds, ...currentHistoryIds]));
+
+        // Augment the new prompt with hidden context if we have a quote
+        // This tells the AI what "this" refers to without showing it in the chat UI
+        if (quoteText) {
+            newPrompt.hiddenContext = `User highlighted: "${quoteText}" in the previous message.`;
+        }
+
+
 
         // We still keep the prompt context for the AI, but for DB storage we use IDs
         // The API now expects branchContext to be the ID array
 
+        // Check for images in context to set hasImage flag
+        // If parent has image OR any message in the new context chain has logic markers
+        const contextHasImages = contextMessages.some(m =>
+            typeof m.content === 'string' && m.content.includes('[IMAGE:')
+        );
+        const parentHasImages = !!parentNode?.data.hasImage;
+        const shouldHaveImage = contextHasImages || parentHasImages;
 
         try {
-            console.log('[handleBranch] Creating branch with sourceMessageId:', sourceMessageId, 'quoteText:', quoteText);
+
             const response = await fetch('/api/chat-blocks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -517,7 +563,9 @@ export default function Canvas({
                     sourceMessageId,
                     quoteStart,
                     quoteEnd,
-                    quoteText
+                    quoteText,
+                    model: 'anthropic/claude-opus-4-5', // Default to Opus 4.5 for branches
+                    hasImage: shouldHaveImage
                 }),
             });
 
@@ -535,12 +583,18 @@ export default function Canvas({
                 };
 
                 // Add new block to state
-                setBlockMessages((prev) => ({
-                    ...prev,
-                    [newBlock.id]: initialVisibleMessages.map((m: any) => ({
+                // IMPORTANT: Use the messages returned from API because they have the real database IDs!
+                const finalMessages = responseData.messages && responseData.messages.length > 0
+                    ? responseData.messages.map((m: any) => ({
+                        id: m.id,
                         role: m.role,
                         content: m.content
                     }))
+                    : initialVisibleMessages;
+
+                setBlockMessages((prev) => ({
+                    ...prev,
+                    [newBlock.id]: finalMessages
                 }));
 
                 // Update nodes: Add new block AND update source block links for immediate highlight
@@ -573,10 +627,11 @@ export default function Canvas({
                             id: newBlock.id,
                             boardId: boardId,
                             title: newBlock.title || 'New Branch',
-                            messages: initialVisibleMessages,
+                            messages: finalMessages,
                             branchContext: newBlock.branchContext,
-                            model: newBlock.model || 'openai/gpt-4o',
+                            model: newBlock.model || 'anthropic/claude-opus-4-5',
                             isExpanded: true,
+                            hasImage: newBlock.hasImage || shouldHaveImage,
                         },
                     };
 
@@ -588,8 +643,8 @@ export default function Canvas({
                     id: `e-${parentBlockId}-${newBlock.id}`, // Explicit ID for styling
                     source: parentBlockId,
                     target: newBlock.id,
-                    sourceHandle: null,
-                    targetHandle: null,
+                    sourceHandle: 'bottom',
+                    targetHandle: 'top',
                     type: 'smoothstep',
                     animated: false,
                     style: { stroke: 'var(--muted)', strokeWidth: 2 },
@@ -765,6 +820,8 @@ export default function Canvas({
             id: `e-${imageNodeId}-${chatBlockId}`,
             source: imageNodeId,
             target: chatBlockId,
+            sourceHandle: 'bottom',
+            targetHandle: 'top',
             type: 'orbit',
             animated: false,
             style: { stroke: 'var(--muted)', strokeWidth: 2 },
@@ -837,7 +894,8 @@ export default function Canvas({
         // Save position changes
         changes.forEach(async (change: any) => {
             if (change.type === 'position' && change.dragging === false && change.position) {
-                const node = nodes.find(n => n.id === change.id);
+                // Use ref to avoid dependency cycle
+                const node = nodesRef.current.find(n => n.id === change.id);
                 if (!node) return;
 
                 const endpoint = node.type === 'chatBlock'
@@ -853,16 +911,17 @@ export default function Canvas({
                             positionY: change.position.y,
                         }),
                     });
+
                     if (!response.ok) {
-                        const errorText = await response.text();
-                        console.error(`[Canvas] Failed to save position for ${node.type} ${change.id}:`, response.status, errorText);
+                        console.error('Failed to save node position');
                     }
-                } catch (err) {
-                    console.error(`[Canvas] Network error saving position for ${node.type} ${change.id}:`, err);
+                } catch (error) {
+                    console.error('Error saving node position:', error);
                 }
             }
         });
-    }, [onNodesChange, nodes]);
+    }, [onNodesChange]); // Removed 'nodes' dependency
+
 
     const onConnect: OnConnect = useCallback(
         (params) => setEdges((eds) => addEdge(params, eds)),
@@ -880,7 +939,7 @@ export default function Canvas({
                 nodes={nodesWithCallbacks}
                 edges={edges}
                 onNodesChange={handleNodesChange}
-                onEdgesChange={onEdgesState}
+                onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}

@@ -7,6 +7,7 @@ import ChatInput from './ChatInput';
 import ContextMenu from '../ui/ContextMenu';
 import InlineInput from './InlineInput';
 import ThinkingIndicator from './ThinkingIndicator';
+import ModelSelector from './ModelSelector';
 
 interface EmbeddedChatProps {
     blockId: string;
@@ -26,6 +27,7 @@ interface EmbeddedChatProps {
     hasImage?: boolean; // True if chat block has images (persisted in DB)
     onImageUploaded?: (imageInfo: { id: string; url: string; name: string, mimeType?: string }) => void;
     onHasImageChange?: (hasImage: boolean) => void; // Callback to persist hasImage to DB
+    onRename?: (newTitle: string) => void;
 }
 
 interface ContextMenuState {
@@ -40,8 +42,8 @@ interface ContextMenuState {
 
 // Vision-capable models
 const VISION_MODELS = [
-    'openai/gpt-4o',
-    'openai/gpt-4o-mini',
+    'openai/gpt-4.1',
+    'openai/gpt-4.1-mini',
 ];
 
 export default function EmbeddedChat({
@@ -62,6 +64,7 @@ export default function EmbeddedChat({
     hasImage = false,
     onImageUploaded,
     onHasImageChange,
+    onRename,
 }: EmbeddedChatProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +73,11 @@ export default function EmbeddedChat({
     const [isSearchEnabled, setIsSearchEnabled] = useState(false);
     const [hasImagesInContext, setHasImagesInContext] = useState(hasImage);
     const pendingImagesRef = useRef<string[]>([]);
+
+    // UI states for Rename and Delete
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [renameValue, setRenameValue] = useState(title);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     // Map to track database IDs for messages (key: message index, value: database ID)
     // Initialize with IDs from initialMessages
@@ -80,28 +88,32 @@ export default function EmbeddedChat({
         setHasImagesInContext(hasImage);
     }, [hasImage]);
 
+    useEffect(() => {
+        setRenameValue(title);
+    }, [title]);
+
     // Force switch to vision model if images are present and current model is not supported
     useEffect(() => {
         if (hasImagesInContext && !VISION_MODELS.includes(model)) {
-            console.log('Images detected, auto-switching to GPT-4o');
-            onModelChange?.('openai/gpt-4o');
+
+            onModelChange?.('openai/gpt-4.1');
         }
     }, [hasImagesInContext, model, onModelChange]);
 
     // Lock to vision model if images in context (Dedalus only supports OpenAI for images)
     // We keep this for render-time logic, but the useEffect above handles the actual state change
     const effectiveModel = hasImagesInContext && !VISION_MODELS.includes(model)
-        ? 'openai/gpt-4o'
+        ? 'openai/gpt-4.1'
         : model;
 
     const allModelOptions = [
-        { value: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5' },
-        { value: 'openai/gpt-4o', label: 'GPT-4o (Vision)' },
-        { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (Vision)' },
-        { value: 'openai/gpt-5', label: 'GPT-5' },
+        { value: 'openai/gpt-5.1', label: 'GPT-5.1' },
         { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
+        { value: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5' },
         { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-        { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
+        { value: 'anthropic/claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+        { value: 'openai/gpt-4.1', label: 'GPT-4.1 (Vision)' },
+        { value: 'openai/gpt-4.1-mini', label: 'GPT-4.1 Mini (Vision)' },
         { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro' },
     ];
 
@@ -139,7 +151,7 @@ export default function EmbeddedChat({
             body: { chatBlockId: blockId, model: effectiveModel, isSearchEnabled, branchContext, imageUrls: pendingImagesRef.current },
         },
         onFinish: async ({ message }) => {
-            console.log('Chat finished, saving message:', message);
+
 
             // Save assistant message to database
             const contentToSave = typeof message.content === 'string' ? message.content : '';
@@ -163,7 +175,6 @@ export default function EmbeddedChat({
                         // The assistant message is now part of the messages array, so its index is length - 1
                         const msgIndex = messages.length - 1;
                         messageIdMapRef.current.set(msgIndex, savedMessage.id);
-                        console.log('Saved assistant message with ID:', savedMessage.id, 'at index:', msgIndex);
                     }
                 } catch (err) {
                     console.error('Failed to save assistant message:', err);
@@ -183,7 +194,6 @@ export default function EmbeddedChat({
     useEffect(() => {
         if (!hasInitialized.current && pendingPrompt) {
             hasInitialized.current = true;
-            console.log('Auto-triggering response for:', pendingPrompt);
             sendMessage(pendingPrompt);
         }
     }, [pendingPrompt, sendMessage]);
@@ -239,7 +249,6 @@ export default function EmbeddedChat({
                 // Store the database ID for this message at the NEXT index (current messages length)
                 const userMsgIndex = messages.length;
                 messageIdMapRef.current.set(userMsgIndex, savedMessage.id);
-                console.log('[EmbeddedChat] Saved user message with ID:', savedMessage.id, 'at index:', userMsgIndex);
             } else {
                 const errorText = await response.text();
                 console.error('[EmbeddedChat] Failed to save user message:', response.status, errorText);
@@ -350,7 +359,6 @@ export default function EmbeddedChat({
 
     const initiateBranch = () => {
         if (contextMenu) {
-            console.log('[Branch] Initiating with sourceMessageId:', contextMenu.sourceMessageId);
             // Move state to pending to show input
             setBranchPending(contextMenu);
             setContextMenu(null);
@@ -361,7 +369,17 @@ export default function EmbeddedChat({
         if (branchPending && onBranch) {
             // Context history: all messages up to AND including the selected one
             // Context history: all messages up to AND including the selected one
-            const history = messages.slice(0, branchPending.messageIndex + 1).map((m, i) => ({
+            // If the selected message is a USER message, and the NEXT message is an ASSISTANT, include it too.
+            let endIndex = branchPending.messageIndex + 1;
+            const selectedMsg = messages[branchPending.messageIndex];
+            const nextMsg = messages[branchPending.messageIndex + 1];
+
+            if (selectedMsg.role === 'user' && nextMsg && nextMsg.role === 'assistant') {
+
+                endIndex = branchPending.messageIndex + 2;
+            }
+
+            const history = messages.slice(0, endIndex).map((m, i) => ({
                 id: messageIdMapRef.current.get(i), // Get real DB ID
                 role: m.role,
                 content: m.content
@@ -402,27 +420,78 @@ export default function EmbeddedChat({
                         <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                     </svg>
                 </div>
-                <h3 className="embedded-chat-title" style={{ flex: '0 0 auto', marginRight: 10 }}>{title}</h3>
 
                 {/* Model Selector */}
-                <select
-                    className="model-selector"
-                    value={hasImagesInContext ? effectiveModel : model}
-                    onChange={(e) => onModelChange?.(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()} // Prevent drag
+                <ModelSelector
+                    model={hasImagesInContext ? effectiveModel : model}
+                    options={modelOptions}
+                    onChange={(newModel: string) => onModelChange?.(newModel)}
                     disabled={hasImagesInContext}
-                    title={hasImagesInContext ? "Vision model locked (images attached)" : "Select Model"}
-                    style={hasImagesInContext ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
-                >
-                    {modelOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                        </option>
-                    ))}
-                </select>
+                    disabledReason="Vision model required (images attached)"
+                />
+
+                {isRenaming ? (
+                    <input
+                        type="text"
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => {
+                            if (renameValue.trim() && renameValue !== title) {
+                                onRename?.(renameValue);
+                            } else {
+                                setRenameValue(title);
+                            }
+                            setIsRenaming(false);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                if (renameValue.trim() && renameValue !== title) {
+                                    onRename?.(renameValue);
+                                }
+                                setIsRenaming(false);
+                            } else if (e.key === 'Escape') {
+                                setRenameValue(title);
+                                setIsRenaming(false);
+                            }
+                        }}
+                        autoFocus
+                        className="nodrag"
+                        style={{
+                            flex: '0 0 auto',
+                            marginRight: 10,
+                            background: 'transparent',
+                            border: '1px solid var(--border)',
+                            borderRadius: 4,
+                            color: 'inherit',
+                            fontSize: 'inherit',
+                            fontWeight: 'inherit',
+                            padding: '2px 4px',
+                            width: '150px'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <h3 className="embedded-chat-title" style={{ flex: '0 0 auto', marginRight: 10 }}>{title}</h3>
+                )}
+
+
+
+
 
                 <div className="embedded-chat-actions">
+                    {!isRenaming && (
+                        <button
+                            className="embedded-chat-action-btn"
+                            onClick={() => setIsRenaming(true)}
+                            title="Rename"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                            </svg>
+                        </button>
+                    )}
                     <button
                         className="embedded-chat-action-btn"
                         onClick={onClose}
@@ -443,15 +512,82 @@ export default function EmbeddedChat({
                         </svg>
                     </button>
                     {onDelete && (
-                        <button
-                            className="embedded-chat-action-btn delete"
-                            onClick={onDelete}
-                            title="Delete"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                        </button>
+                        <div style={{ position: 'relative' }}>
+                            <button
+                                className={`embedded-chat-action-btn delete ${showDeleteConfirm ? 'active' : ''}`}
+                                onClick={() => setShowDeleteConfirm(!showDeleteConfirm)}
+                                title="Delete"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+
+                            {/* Custom Delete Confirmation - Inline Popover */}
+                            {showDeleteConfirm && (
+                                <div
+                                    className="delete-confirm-popover"
+                                    style={{
+                                        position: 'absolute',
+                                        top: '100%',
+                                        right: 0,
+                                        marginTop: '8px',
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: '8px',
+                                        padding: '12px',
+                                        zIndex: 100,
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                                        width: '200px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '8px'
+                                    }}
+                                    onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                    <div style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                                        Delete this chat?
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button
+                                            onClick={() => setShowDeleteConfirm(false)}
+                                            style={{
+                                                flex: 1,
+                                                padding: '6px',
+                                                borderRadius: '4px',
+                                                border: '1px solid var(--border)',
+                                                background: 'transparent',
+                                                color: 'var(--text-secondary)',
+                                                fontSize: '12px',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                if (onDelete) onDelete(e);
+                                                setShowDeleteConfirm(false);
+                                            }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '6px',
+                                                borderRadius: '4px',
+                                                border: 'none',
+                                                background: '#ef4444',
+                                                color: 'white',
+                                                fontSize: '12px',
+                                                cursor: 'pointer',
+                                                fontWeight: 500
+                                            }}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>

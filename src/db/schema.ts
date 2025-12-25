@@ -46,6 +46,7 @@ export const messages = pgTable('messages', {
     chatBlockId: uuid('chat_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
     role: text('role').notNull(), // 'user' | 'assistant'
     content: text('content').notNull(),
+    hiddenContext: text('hidden_context'), // Context invisible to user but seen by AI (e.g. "User highlighted: ...")
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -136,6 +137,17 @@ export const messageLinksRelations = relations(messageLinks, ({ one }) => ({
     sourceMessage: one(messages, { fields: [messageLinks.sourceMessageId], references: [messages.id] }),
     targetBlock: one(chatBlocks, { fields: [messageLinks.targetBlockId], references: [chatBlocks.id] }),
 }));
+
+// AI Error Logs - capture failures for debugging
+export const aiErrorLogs = pgTable('ai_error_logs', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id'), // Nullable if anon
+    model: text('model'),
+    inputMessages: jsonb('input_messages'),
+    errorType: text('error_type'), // 'null_response', 'empty_content', 'provider_error'
+    rawOutput: text('raw_output'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
 // Update existing relations
 export const messagesRelations = relations(messages, ({ one, many }) => ({

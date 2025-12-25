@@ -72,6 +72,7 @@ export async function POST(
                 chatBlockId: blockId,
                 role,
                 content,
+                hiddenContext: body.hiddenContext || null,
             })
             .returning();
 

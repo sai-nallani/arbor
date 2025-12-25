@@ -9,7 +9,7 @@ import { auth } from '@clerk/nextjs/server';
 import Dedalus, { DedalusRunner } from 'dedalus-labs';
 import { streamToWebResponse } from 'dedalus-react/server';
 import { db } from '@/db';
-import { messages, chatBlocks } from '@/db/schema';
+import { messages, chatBlocks, aiErrorLogs } from '@/db/schema';
 import { eq, inArray } from 'drizzle-orm';
 
 const client = new Dedalus({
@@ -17,7 +17,10 @@ const client = new Dedalus({
 });
 const runner = new DedalusRunner(client);
 
-export async function POST(request: NextRequest) {
+// System prompt to enforce formatting
+const SYSTEM_PROMPT = `You are a helpful AI assistant. You must use LaTeX formatting for all mathematical expressions. IMPORTANT: You MUST use dollar signs ($) for inline math (e.g., $E=mc^2$) and double dollar signs ($$) for block math. Do NOT use \\( ... \\) or \\[ ... \\] delimiters. You must strictly follow Markdown formatting rules for all output. Add appropriate spacing and paragraphing when necessary. Make it readable for the user.`;
+
+export async function POST(req: NextRequest) {
     try {
         const { userId } = await auth();
 
@@ -28,7 +31,7 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const body = await request.json();
+        const body = await req.json();
         const { messages: chatMessages, model, chatBlockId, isSearchEnabled, branchContext, imageUrls } = body;
 
         if (!chatMessages || !Array.isArray(chatMessages)) {
@@ -58,7 +61,23 @@ export async function POST(request: NextRequest) {
             return true;
         });
 
-        let aiMessages = [...cleanMessages];
+        // process current messages to inject hidden context
+        const processedCurrentMessages = cleanMessages.map((msg: any) => {
+            if (msg.hiddenContext && typeof msg.content === 'string') {
+                return {
+                    ...msg,
+                    content: `[Context: ${msg.hiddenContext}]\n\n${msg.content}`
+                };
+            }
+            return msg;
+        });
+
+        // Initialize with system prompt + current messages
+        let aiMessages = [
+            { role: 'system', content: SYSTEM_PROMPT },
+            ...processedCurrentMessages
+        ];
+
         if (branchContext) {
             let historyMessages: any[] = [];
             let highlightedText = '';
@@ -71,7 +90,7 @@ export async function POST(request: NextRequest) {
                         .from(chatBlocks)
                         .where(eq(chatBlocks.id, chatBlockId));
                     if (block && block.branchSourceText) {
-                        highlightedText = block.branchSourceText;
+                        highlightedText = block.branchSourceText || '';
                     }
                 }
 
@@ -105,83 +124,90 @@ export async function POST(request: NextRequest) {
             if (historyMessages.length > 0) {
                 const systemInstruction = highlightedText
                     ? `The user has branched from the conversation above by highlighting this text: "${highlightedText}". 
-                       The user's next message is a continuation based on this specific context. Please respond accordingly.`
+                   The user's next message is a continuation based on this specific context. Please respond accordingly.`
                     : `The user has branched from the conversation above. Please continue based on that context.`;
 
+                // Construct final array: Global System -> History -> Branch Context -> Current Messages
                 aiMessages = [
+                    { role: 'system', content: SYSTEM_PROMPT },
                     ...historyMessages,
                     {
                         role: 'system',
                         content: systemInstruction
                     },
-                    ...chatMessages
+                    ...processedCurrentMessages
                 ];
             }
         }
 
-        // Parse IMAGE markers from message content if imageUrls not provided directly
-        let resolvedImageUrls = imageUrls || [];
-        const lastMessage = aiMessages[aiMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+        // Process all messages to handle image markers and convert to multimodal content
+        aiMessages = aiMessages.map((msg, index) => {
+            if (msg.role !== 'user' || typeof msg.content !== 'string') {
+                return msg;
+            }
+
+            // Check for [IMAGE:url] markers
             const imageMarkerRegex = /\[IMAGE:(https?:\/\/[^\]]+)\]/g;
-            const matches = lastMessage.content.match(imageMarkerRegex);
+            const matches = msg.content.match(imageMarkerRegex);
+
+            // For the last message, we also check the direct imageUrls param
+            const isLastMessage = index === aiMessages.length - 1;
+            const directImages = isLastMessage ? (imageUrls || []) : [];
+
+            if (!matches && directImages.length === 0) {
+                return msg;
+            }
+
+            let contentParts: any[] = [];
+            let cleanContent = msg.content;
+            let msgImageUrls: string[] = [...directImages];
+
+            // Extract URLs from markers
             if (matches) {
-                // Extract URLs from markers
                 const extractedUrls = matches.map((m: string) => m.replace('[IMAGE:', '').replace(']', ''));
-                resolvedImageUrls = [...resolvedImageUrls, ...extractedUrls];
-                // Remove markers from message content
-                const cleanContent = lastMessage.content.replace(imageMarkerRegex, '').trim();
-                aiMessages[aiMessages.length - 1] = { ...lastMessage, content: cleanContent };
+                msgImageUrls = [...msgImageUrls, ...extractedUrls];
+                // Remove markers from text
+                cleanContent = msg.content.replace(imageMarkerRegex, '').trim();
             }
-        }
 
-        // If images are provided (or parsed from markers), format as multimodal content
-        if (resolvedImageUrls.length > 0) {
-            const lastMsg = aiMessages[aiMessages.length - 1];
-            if (lastMsg && lastMsg.role === 'user') {
-                // Build multimodal content array
-                const contentParts: any[] = [];
-
-                // Add text if present
-                if (lastMsg.content && typeof lastMsg.content === 'string' && lastMsg.content.trim()) {
-                    contentParts.push({
-                        type: 'text',
-                        text: lastMsg.content
-                    });
-                }
-
-                // Add image URLs
-                for (const url of resolvedImageUrls) {
-                    contentParts.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: url
-                        }
-                    });
-                }
-
-                // Replace the last message with multimodal content
-                aiMessages[aiMessages.length - 1] = {
-                    role: 'user',
-                    content: contentParts
-                };
+            // Add text part
+            if (cleanContent) {
+                contentParts.push({
+                    type: 'text',
+                    text: cleanContent
+                });
             }
-        }
+
+            // Add image parts
+            for (const url of msgImageUrls) {
+                contentParts.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: url
+                    }
+                });
+            }
+
+            return {
+                ...msg,
+                content: contentParts
+            };
+        });
 
         // Create streaming response using Dedalus
-        let targetModel = model || 'anthropic/claude-opus-4';
+        let targetModel = model || 'anthropic/claude-opus-4-5';
 
-        // Validate model for image inputs
-        if (resolvedImageUrls.length > 0) {
+        // Check if ANY message has images to enforce vision model
+        const hasImages = aiMessages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'));
+
+        if (hasImages) {
             // Dedalus only supports OpenAI for images currently
-            if (!targetModel.startsWith('openai/')) {
-                // Auto-switch to GPT-4o or return error? 
-                // User asked to "not allow", so let's be strict or auto-switch.
-                // Auto-switching is safer for UX.
-                console.log(`Auto-switching model from ${targetModel} to openai/gpt-4o for image support`);
-                targetModel = 'openai/gpt-4o';
+            if (!targetModel.startsWith('openai/') || targetModel === 'openai/gpt-5' || targetModel === 'openai/gpt-5-pro' || targetModel === 'openai/gpt-5-mini' || targetModel === 'openai/o3' || targetModel === 'openai/o3-pro') {
+                console.log(`Auto-switching model from ${targetModel} to openai/gpt-4.1 for image support`);
+                targetModel = 'openai/gpt-4.1';
             }
         }
+
 
         const stream = await runner.run({
             messages: aiMessages,
@@ -190,8 +216,37 @@ export async function POST(request: NextRequest) {
             mcp_servers: isSearchEnabled ? ['https://mcp.exa.ai/mcp'] : undefined,
         });
 
+        // Wrap stream to monitor for errors (empty or "...")
+        // We need to cast to AsyncIterable to iterate
+        const wrappedStream = async function* () {
+            let fullContent = '';
+            try {
+                for await (const chunk of (stream as any)) {
+                    // Accumulate content to check for validity
+                    const content = chunk.choices?.[0]?.delta?.content || '';
+                    if (content) fullContent += content;
+                    yield chunk;
+                }
+            } finally {
+                // Check if output was invalid
+                const trimmed = fullContent.trim();
+                if (!trimmed || trimmed === '...' || trimmed === '') {
+                    console.warn('[API/Chat] Invalid AI response detected:', fullContent);
+
+                    // Log to database (fire and forget)
+                    db.insert(aiErrorLogs).values({
+                        userId: userId || 'anonymous',
+                        model: targetModel,
+                        inputMessages: aiMessages as any, // Cast JSON
+                        errorType: !trimmed ? 'empty_content' : 'ellipsis_error',
+                        rawOutput: fullContent
+                    }).catch(err => console.error('Failed to log AI error:', err));
+                }
+            }
+        };
+
         // Use dedalus-react's helper to convert stream to Web Response
-        return streamToWebResponse(stream);
+        return streamToWebResponse(wrappedStream());
     } catch (error) {
         console.error('Chat API error:', error);
         return new Response(JSON.stringify({ error: 'Chat failed' }), {

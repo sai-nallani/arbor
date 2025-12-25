@@ -63,7 +63,7 @@ export function LandingHeader() {
                     </SignInButton>
                 </SignedOut>
                 <SignedIn>
-                    <a href="/canvas" className="new-board-btn">
+                    <a href="/chat" className="new-board-btn">
                         New Board
                     </a>
                     <UserButton
