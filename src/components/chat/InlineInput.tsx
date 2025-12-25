@@ -8,9 +8,10 @@ interface InlineInputProps {
     y: number;
     onSubmit: (value: string) => void;
     onClose: () => void;
+    quoteText?: string;
 }
 
-export default function InlineInput({ x, y, onSubmit, onClose }: InlineInputProps) {
+export default function InlineInput({ x, y, onSubmit, onClose, quoteText }: InlineInputProps) {
     const inputRef = useRef<HTMLTextAreaElement>(null);
     const [value, setValue] = useState('');
 
@@ -81,6 +82,21 @@ export default function InlineInput({ x, y, onSubmit, onClose }: InlineInputProp
             <div style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 500 }}>
                 Branch with prompt:
             </div>
+            {quoteText && (
+                <div style={{
+                    fontSize: '11px',
+                    color: 'var(--foreground)',
+                    fontStyle: 'italic',
+                    borderLeft: '2px solid var(--accent)',
+                    paddingLeft: '4px',
+                    margin: '4px 0',
+                    maxHeight: '60px',
+                    overflowY: 'auto',
+                    opacity: 0.8
+                }}>
+                    "{quoteText}"
+                </div>
+            )}
             <textarea
                 ref={inputRef}
                 value={value}

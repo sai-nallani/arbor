@@ -14,9 +14,10 @@ interface ContextMenuProps {
     y: number;
     actions: Action[];
     onClose: () => void;
+    persist?: boolean;
 }
 
-export default function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
+export default function ContextMenu({ x, y, actions, onClose, persist = false }: ContextMenuProps) {
     const menuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -34,8 +35,10 @@ export default function ContextMenu({ x, y, actions, onClose }: ContextMenuProps
 
         // Delay attaching to avoid immediate closing from the triggering click
         setTimeout(() => {
-            document.addEventListener('click', handleClickOutside);
-            document.addEventListener('contextmenu', handleClickOutside); // Context menu elsewhere closes this one
+            if (!persist) {
+                document.addEventListener('click', handleClickOutside);
+                document.addEventListener('contextmenu', handleClickOutside); // Context menu elsewhere closes this one
+            }
             document.addEventListener('keydown', handleEscape);
         }, 0);
 
@@ -44,7 +47,7 @@ export default function ContextMenu({ x, y, actions, onClose }: ContextMenuProps
             document.removeEventListener('contextmenu', handleClickOutside);
             document.removeEventListener('keydown', handleEscape);
         };
-    }, [onClose]);
+    }, [onClose, persist]);
 
     // Use a portal to render outside of any transformed parents (like React Flow nodes)
     if (typeof document === 'undefined') return null;

@@ -89,8 +89,10 @@ export async function POST(request: NextRequest) {
         }
 
         // Transactional creation
+        console.log('[POST /api/chat-blocks] Starting transaction...');
         const result = await db.transaction(async (tx) => {
             // 1. Create the chat block
+            console.log('[POST /api/chat-blocks] Inserting block...');
             const [newBlock] = await tx
                 .insert(chatBlocks)
                 .values({
@@ -101,12 +103,15 @@ export async function POST(request: NextRequest) {
                     positionY: positionY ?? 150,
                     parentId: parentId || null,
                     branchContext: branchContext || null,
-                    branchSourceText: branchSourceText || null,
+                    branchSourceText: branchSourceText || quoteText || null,
                 })
                 .returning();
 
+            console.log('[POST /api/chat-blocks] Block created with ID:', newBlock.id);
+
             // 2. Clone initial messages if provided
             if (initialMessages && Array.isArray(initialMessages) && initialMessages.length > 0) {
+                console.log(`[POST /api/chat-blocks] Cloning ${initialMessages.length} messages...`);
                 await tx.insert(messages).values(
                     initialMessages.map((msg: any) => ({
                         chatBlockId: newBlock.id,
@@ -117,19 +122,24 @@ export async function POST(request: NextRequest) {
             }
 
             // 3. Create message link if source provided
+            let linkId = null;
             if (sourceMessageId && quoteStart !== undefined && quoteEnd !== undefined) {
-                await tx.insert(messageLinks).values({
+                console.log('[POST /api/chat-blocks] Creating message link...');
+                const [newLink] = await tx.insert(messageLinks).values({
                     sourceMessageId,
                     targetBlockId: newBlock.id,
                     quoteStart,
                     quoteEnd,
                     quoteText: quoteText || null,
-                });
+                }).returning();
+                linkId = newLink.id;
+                console.log('[POST /api/chat-blocks] Message link created with ID:', linkId);
             }
 
-            return newBlock;
+            return { ...newBlock, linkId };
         });
 
+        console.log('[POST /api/chat-blocks] Transaction SUCCESS, returning:', JSON.stringify(result));
         return NextResponse.json(result, { status: 201 });
     } catch (error) {
         console.error('Error creating chat block:', error);

@@ -10,6 +10,7 @@ import ThinkingIndicator from './ThinkingIndicator';
 
 interface EmbeddedChatProps {
     blockId: string;
+    boardId: string;
     title: string;
     initialMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
     onClose: () => void;
@@ -22,6 +23,9 @@ interface EmbeddedChatProps {
     branchContext?: string;
     onLinkClick?: (targetBlockId: string) => void;
     hasBeenResized?: boolean;
+    hasImage?: boolean; // True if chat block has images (persisted in DB)
+    onImageUploaded?: (imageInfo: { id: string; url: string; name: string, mimeType?: string }) => void;
+    onHasImageChange?: (hasImage: boolean) => void; // Callback to persist hasImage to DB
 }
 
 interface ContextMenuState {
@@ -34,8 +38,15 @@ interface ContextMenuState {
     messageIndex: number;
 }
 
+// Vision-capable models
+const VISION_MODELS = [
+    'openai/gpt-4o',
+    'openai/gpt-4o-mini',
+];
+
 export default function EmbeddedChat({
     blockId,
+    boardId,
     title,
     initialMessages = [],
     onClose,
@@ -44,24 +55,60 @@ export default function EmbeddedChat({
     onBranch,
     onLinkClick,
     links,
-    model = 'openai/gpt-5',
+    model = 'anthropic/claude-sonnet-4-5-20250929',
     onModelChange,
     branchContext,
     hasBeenResized = false,
+    hasImage = false,
+    onImageUploaded,
+    onHasImageChange,
 }: EmbeddedChatProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [branchPending, setBranchPending] = useState<ContextMenuState | null>(null);
     const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+    const [hasImagesInContext, setHasImagesInContext] = useState(hasImage);
+    const pendingImagesRef = useRef<string[]>([]);
 
-    const modelOptions = [
+    // Map to track database IDs for messages (key: message index, value: database ID)
+    // Initialize with IDs from initialMessages
+    const messageIdMapRef = useRef<Map<number, string>>(new Map());
+
+    // Sync state with prop (e.g. initial load vs client toggle)
+    useEffect(() => {
+        setHasImagesInContext(hasImage);
+    }, [hasImage]);
+
+    // Force switch to vision model if images are present and current model is not supported
+    useEffect(() => {
+        if (hasImagesInContext && !VISION_MODELS.includes(model)) {
+            console.log('Images detected, auto-switching to GPT-4o');
+            onModelChange?.('openai/gpt-4o');
+        }
+    }, [hasImagesInContext, model, onModelChange]);
+
+    // Lock to vision model if images in context (Dedalus only supports OpenAI for images)
+    // We keep this for render-time logic, but the useEffect above handles the actual state change
+    const effectiveModel = hasImagesInContext && !VISION_MODELS.includes(model)
+        ? 'openai/gpt-4o'
+        : model;
+
+    const allModelOptions = [
         { value: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5' },
+        { value: 'openai/gpt-4o', label: 'GPT-4o (Vision)' },
+        { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini (Vision)' },
         { value: 'openai/gpt-5', label: 'GPT-5' },
         { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
         { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
         { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
         { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro' },
     ];
+
+    // Filter to vision-only models when images are in context
+    const modelOptions = hasImagesInContext
+        ? allModelOptions.filter(opt => VISION_MODELS.includes(opt.value))
+        : allModelOptions;
 
     // Separate persistent history from a pending user prompt (for auto-reply)
     const [processedMessages, pendingPrompt] = useMemo(() => {
@@ -89,7 +136,7 @@ export default function EmbeddedChat({
         })),
         transport: {
             api: '/api/chat',
-            body: { chatBlockId: blockId, model, isSearchEnabled, branchContext },
+            body: { chatBlockId: blockId, model: effectiveModel, isSearchEnabled, branchContext, imageUrls: pendingImagesRef.current },
         },
         onFinish: async ({ message }) => {
             console.log('Chat finished, saving message:', message);
@@ -99,14 +146,27 @@ export default function EmbeddedChat({
 
             // Only save if there's actual content
             if (contentToSave.trim()) {
-                await fetch(`/api/chat-blocks/${blockId}/messages`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        role: 'assistant',
-                        content: contentToSave,
-                    }),
-                }).catch(err => console.error('Failed to save assistant message:', err));
+                try {
+                    const response = await fetch(`/api/chat-blocks/${blockId}/messages`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            role: 'assistant',
+                            content: contentToSave,
+                        }),
+                    });
+
+                    if (response.ok) {
+                        const savedMessage = await response.json();
+                        // Store the database ID for this message
+                        // The assistant message will be at the current last position
+                        const msgIndex = messages.length; // This is the index where the new message will be
+                        messageIdMapRef.current.set(msgIndex, savedMessage.id);
+                        console.log('Saved assistant message with ID:', savedMessage.id, 'at index:', msgIndex);
+                    }
+                } catch (err) {
+                    console.error('Failed to save assistant message:', err);
+                }
             } else {
                 console.warn('Empty assistant response - not saving to database');
             }
@@ -132,53 +192,164 @@ export default function EmbeddedChat({
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    const handleSend = async (content: string) => {
-        if (!content.trim()) return;
+    // Keep a ref to messages for the event listener to access latest state without re-binding
+    const messagesRef = useRef(messages);
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
 
-        // Send to AI - the /api/chat route will save the user message to the database
-        sendMessage(content);
-        setIsSearchEnabled(false); // Reset search toggle after send
-    };
-
-    // Handle context menu
-    const handleContextMenu = (e: React.MouseEvent, index: number, msg: any) => {
-        const selection = window.getSelection();
-        const selectedText = selection?.toString().trim();
-
-        if (selectedText && selection && selection.rangeCount > 0) {
-            e.preventDefault();
-            e.stopPropagation();
-
-            // Simple range detection - relative to the message content node would be better but this is MVP
-            // We'll trust the selection text for now and assume first occurrence if strict index needed
-            // For robust implementation, we'd need to calculate offset relative to the message div
-            // Here we just pass the text and assume full match or index 0 for MVP
-
-            // To get start/end strictly, we can check selection.anchorOffset etc if selection is within this node
-            // But React event handling makes accessing the exact text node tricky without refs
-            // We'll search for the text in content
-
-            const content = typeof msg.content === 'string' ? msg.content : '';
-            const start = content.indexOf(selectedText);
-
-            if (start !== -1) {
-                setContextMenu({
-                    x: e.clientX,
-                    y: e.clientY + 20, // Offset to not cover text
-                    // WORKAROUND: We will assume we can get the real ID if we passed it in initialMessages
-                    // But `useChat` messages structure matches what we passed.
-                    sourceMessageId: (initialMessages[index] as any)?.id || null,
-                    quoteStart: start,
-                    quoteEnd: start + selectedText.length,
-                    quoteText: selectedText,
-                    messageIndex: index,
-                });
+    // Initialize message ID map with initial messages
+    useEffect(() => {
+        // console.log('[MessageIdMap] Initializing with initialMessages:', initialMessages.map((m, i) => ({ i, id: (m as any).id })));
+        initialMessages.forEach((m, i) => {
+            const id = (m as any).id;
+            if (id) {
+                messageIdMapRef.current.set(i, id);
             }
+        });
+        // console.log('[MessageIdMap] After init:', Array.from(messageIdMapRef.current.entries()));
+    }, []); // Run once on mount
+
+    const handleSend = async (content: string, images?: string[]) => {
+        if (!content.trim() && (!images || images.length === 0)) return;
+
+        let messageContent = content;
+        if (images && images.length > 0) {
+            setHasImagesInContext(true);
+            // Persist hasImage to database
+            if (!hasImage) {
+                onHasImageChange?.(true);
+            }
+            // Embed image URLs in message content with a special marker for API to parse
+            const imageMarkers = images.map(url => `[IMAGE:${url}]`).join(' ');
+            messageContent = `${content}\n\n${imageMarkers}`;
         }
+
+        // Save user message to database FIRST to get the ID
+        try {
+            const response = await fetch(`/api/chat-blocks/${blockId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'user', content: messageContent }),
+            });
+
+            if (response.ok) {
+                const savedMessage = await response.json();
+                // Store the database ID for this message at the NEXT index (current messages length)
+                const userMsgIndex = messages.length;
+                messageIdMapRef.current.set(userMsgIndex, savedMessage.id);
+                console.log('[EmbeddedChat] Saved user message with ID:', savedMessage.id, 'at index:', userMsgIndex);
+            } else {
+                const errorText = await response.text();
+                console.error('[EmbeddedChat] Failed to save user message:', response.status, errorText);
+            }
+        } catch (err) {
+            console.error('[EmbeddedChat] Network error saving user message:', err);
+        }
+
+        // Now send to AI (the API route won't re-save since we already saved)
+        sendMessage(messageContent);
+        setIsSearchEnabled(false);
     };
+
+    // Handle global mouse up to detect selection robustly
+    useEffect(() => {
+        const handleGlobalMouseUp = (e: MouseEvent) => {
+            // If dragging/resizing, ignore
+            if ((e.target as Element).closest('.drag-handle')) return;
+
+            // If clicking ON the context menu or inline input, ignore (let their own handlers work)
+            if ((e.target as Element).closest('.context-menu') || (e.target as Element).closest('.inline-input')) return;
+
+            const selection = window.getSelection();
+            const selectedText = selection?.toString().trim();
+
+            // If no text selected, we MUST close the menu (per user request "If there is no selection... should not appear")
+            if (!selectedText) {
+                setContextMenu(null);
+                return;
+            }
+
+            // We only care if:
+            // 1. There is text selected
+            // 2. The selection is inside THIS chat container
+            if (selectedText && selection && selection.rangeCount > 0 && containerRef.current) {
+                const anchorNode = selection.anchorNode;
+                // Check if selection is inside this specific chat instance
+                if (!containerRef.current.contains(anchorNode)) {
+                    return;
+                }
+
+                // Find which message this belongs to
+                // We need to traverse up from the anchorNode to find the message row
+                let currentNode: Node | null = anchorNode;
+                let messageRow: Element | null = null;
+
+                while (currentNode && currentNode !== containerRef.current) {
+                    if (currentNode instanceof Element && currentNode.hasAttribute('data-message-index')) {
+                        messageRow = currentNode;
+                        break;
+                    }
+                    currentNode = currentNode.parentNode;
+                }
+
+                if (messageRow) {
+                    const indexStr = messageRow.getAttribute('data-message-index');
+                    if (indexStr !== null) {
+                        const index = parseInt(indexStr, 10);
+                        const msg = messagesRef.current[index];
+
+                        if (msg) {
+                            const rawContent = typeof msg.content === 'string' ? msg.content : '';
+
+                            // strip image markers to match what is rendered
+                            const imageMarkerRegex = /\[IMAGE:(https?:\/\/[^\]]+)\]/g;
+                            const cleanContent = rawContent.replace(imageMarkerRegex, '');
+
+                            // Try to find the start position in clean content
+                            let start = cleanContent.indexOf(selectedText);
+                            if (start === -1) {
+                                // Fallback: try raw content if clean failed (e.g. if selection crossed marker?)
+                                // But usually clean is what user sees.
+                                start = 0;
+                            }
+
+                            const dbMessageId = messageIdMapRef.current.get(index) || (initialMessages[index] as any)?.id || null;
+
+                            setContextMenu({
+                                x: e.clientX,
+                                y: e.clientY + 10,
+                                sourceMessageId: dbMessageId,
+                                quoteStart: start,
+                                quoteEnd: start + selectedText.length,
+                                quoteText: selectedText,
+                                messageIndex: index,
+                            });
+                            return; // Success, context menu set
+                        }
+                    }
+                }
+            }
+
+            // If we got here and didn't set a menu, we usually clear it.
+            // But per user request, we want the menu to PERSIST even if clicked outside.
+            // So we DO NOT clear contextMenu here.
+
+            // Only time it clears is:
+            // 1. Explicit 'onClose' (e.g. Escape key)
+            // 2. Selecting new text (updates it)
+            // 3. Initiating branch (clears it)
+        };
+
+        document.addEventListener('mouseup', handleGlobalMouseUp);
+        return () => {
+            document.removeEventListener('mouseup', handleGlobalMouseUp);
+        };
+    }, [initialMessages]); // Dependencies minimal, uses refs for dynamic data
 
     const initiateBranch = () => {
         if (contextMenu) {
+            console.log('[Branch] Initiating with sourceMessageId:', contextMenu.sourceMessageId);
             // Move state to pending to show input
             setBranchPending(contextMenu);
             setContextMenu(null);
@@ -188,7 +359,9 @@ export default function EmbeddedChat({
     const confirmBranch = (prompt: string) => {
         if (branchPending && onBranch) {
             // Context history: all messages up to AND including the selected one
-            const history = messages.slice(0, branchPending.messageIndex + 1).map(m => ({
+            // Context history: all messages up to AND including the selected one
+            const history = messages.slice(0, branchPending.messageIndex + 1).map((m, i) => ({
+                id: messageIdMapRef.current.get(i), // Get real DB ID
                 role: m.role,
                 content: m.content
             }));
@@ -206,10 +379,19 @@ export default function EmbeddedChat({
                 branchPending.quoteText,
                 newContext
             );
+
+            // Clear pending states to remove overlay and close prompt
             setBranchPending(null);
+            setContextMenu(null);
+
+            // Also clear the browser selection for a clean finish
+            try {
+                window.getSelection()?.removeAllRanges();
+            } catch (e) {
+                // Ignore if selection API is not available (e.g. some mobile/old browsers)
+            }
         }
     };
-
     return (
         <div className={`embedded-chat ${hasBeenResized ? 'resized' : ''}`}>
             {/* Header */}
@@ -224,11 +406,13 @@ export default function EmbeddedChat({
                 {/* Model Selector */}
                 <select
                     className="model-selector"
-                    value={model}
+                    value={hasImagesInContext ? effectiveModel : model}
                     onChange={(e) => onModelChange?.(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     onMouseDown={(e) => e.stopPropagation()} // Prevent drag
-                    title="Select Model"
+                    disabled={hasImagesInContext}
+                    title={hasImagesInContext ? "Vision model locked (images attached)" : "Select Model"}
+                    style={hasImagesInContext ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
                 >
                     {modelOptions.map(opt => (
                         <option key={opt.value} value={opt.value}>
@@ -272,24 +456,31 @@ export default function EmbeddedChat({
             </div>
 
             {/* Messages - nodrag to allow text selection/scrolling, nowheel to prevent canvas zoom */}
-            <div className="embedded-chat-messages nodrag nowheel">
+            <div className="embedded-chat-messages nodrag nowheel" ref={containerRef} style={{ position: 'relative' }}>
+
                 {messages.length === 0 ? (
                     <div className="chat-empty-state small">
                         <p>Start chatting...</p>
                     </div>
                 ) : (
-                    messages.map((msg, index) => (
-                        <ChatMessage
-                            key={`msg-${index}`}
-                            role={msg.role as 'user' | 'assistant'}
-                            content={typeof msg.content === 'string' ? msg.content : ''}
-                            isStreaming={status === 'streaming' && index === messages.length - 1 && msg.role === 'assistant'}
-                            onContextMenu={(e) => handleContextMenu(e, index, msg)}
-                            links={links && initialMessages[index] ? links[(initialMessages[index] as any).id] : undefined}
-                            onLinkClick={onLinkClick}
-                            data-message-index={index}
-                        />
-                    ))
+                    messages.map((msg, index) => {
+                        // Get the database ID for this message
+                        const msgDbId = messageIdMapRef.current.get(index) || (initialMessages[index] as any)?.id;
+
+                        return (
+                            <ChatMessage
+                                key={`msg-${index}`}
+                                role={msg.role as 'user' | 'assistant'}
+                                content={typeof msg.content === 'string' ? msg.content : ''}
+                                isStreaming={status === 'streaming' && index === messages.length - 1 && msg.role === 'assistant'}
+                                highlightStart={branchPending && branchPending.messageIndex === index ? branchPending.quoteStart : undefined}
+                                highlightEnd={branchPending && branchPending.messageIndex === index ? branchPending.quoteEnd : undefined}
+                                links={links && msgDbId ? links[msgDbId] : undefined}
+                                onLinkClick={onLinkClick}
+                                data-message-index={index}
+                            />
+                        );
+                    })
                 )}
 
                 {/* Thinking indicator - shows when AI is processing before streaming starts */}
@@ -317,6 +508,9 @@ export default function EmbeddedChat({
                     compact
                     isSearchEnabled={isSearchEnabled}
                     onSearchToggle={setIsSearchEnabled}
+                    boardId={boardId}
+                    onImagesChange={(hasInputImages) => setHasImagesInContext(hasInputImages || hasImage)}
+                    onImageUploaded={onImageUploaded}
                 />
             </div>
 
@@ -325,6 +519,7 @@ export default function EmbeddedChat({
                     x={contextMenu.x}
                     y={contextMenu.y}
                     onClose={() => setContextMenu(null)}
+                    persist={true}
                     actions={[
                         {
                             label: 'Branch from here',
@@ -336,6 +531,7 @@ export default function EmbeddedChat({
 
             {branchPending && (
                 <InlineInput
+                    quoteText={branchPending.quoteText}
                     x={branchPending.x}
                     y={branchPending.y}
                     onClose={() => setBranchPending(null)}

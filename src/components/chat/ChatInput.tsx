@@ -1,15 +1,32 @@
 'use client';
 
-import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, KeyboardEvent, ClipboardEvent } from 'react';
+
+export interface AttachedImage {
+    file: File;
+    previewUrl: string;
+    uploading?: boolean;
+    uploadedUrl?: string;
+}
+
+export interface UploadedImageInfo {
+    id: string;
+    url: string;
+    name: string;
+    mimeType?: string;
+}
 
 interface ChatInputProps {
-    onSend: (content: string) => void;
+    onSend: (content: string, images?: string[]) => void;
     isLoading: boolean;
     onStop?: () => void;
     placeholder?: string;
     compact?: boolean;
     isSearchEnabled?: boolean;
     onSearchToggle?: (enabled: boolean) => void;
+    boardId?: string;
+    onImagesChange?: (hasImages: boolean) => void;
+    onImageUploaded?: (imageInfo: UploadedImageInfo) => void;
 }
 
 export default function ChatInput({
@@ -20,9 +37,19 @@ export default function ChatInput({
     compact = false,
     isSearchEnabled = false,
     onSearchToggle,
+    boardId,
+    onImagesChange,
+    onImageUploaded,
 }: ChatInputProps) {
     const [value, setValue] = useState('');
+    const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Notify parent when images change
+    useEffect(() => {
+        onImagesChange?.(attachedImages.length > 0);
+    }, [attachedImages.length, onImagesChange]);
 
     // Auto-resize textarea
     useEffect(() => {
@@ -33,17 +60,128 @@ export default function ChatInput({
         }
     }, [value]);
 
+    const uploadImage = async (file: File): Promise<{ url: string; id: string; name: string } | null> => {
+        if (!boardId) {
+            console.error('[ChatInput] No boardId provided for image upload');
+            return null;
+        }
+
+        console.log(`[ChatInput] Starting upload for ${file.name} to board ${boardId}`);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('boardId', boardId);
+        formData.append('positionX', '0');
+        formData.append('positionY', '0');
+
+        try {
+            const response = await fetch('/api/images', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const data = await response.json();
+            console.log('[ChatInput] Upload response body:', data);
+
+            if (response.ok) {
+                if (!data.id) {
+                    console.error('[ChatInput] ID MISSING from successful upload response!');
+                }
+                // Notify parent about the uploaded image so it can create a canvas node
+                onImageUploaded?.({ id: data.id, url: data.url, name: data.name, mimeType: data.mimeType });
+                return { url: data.url, id: data.id, name: data.name };
+            } else {
+                console.error('[ChatInput] Upload failed:', response.status, data);
+                return null;
+            }
+        } catch (error) {
+            console.error('[ChatInput] Network error during upload:', error);
+            return null;
+        }
+    };
+
+    // Handle file selection
+    const handleFileSelect = async (files: FileList | null) => {
+        if (!files) return;
+
+        const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+        if (imageFiles.length === 0) return;
+
+        // Add to attached with preview
+        const newImages: AttachedImage[] = imageFiles.map(file => ({
+            file,
+            previewUrl: URL.createObjectURL(file),
+            uploading: true,
+        }));
+
+        setAttachedImages(prev => [...prev, ...newImages]);
+
+        // Upload each
+        for (let i = 0; i < newImages.length; i++) {
+            const result = await uploadImage(newImages[i].file);
+
+            setAttachedImages(prev => prev.map((img) => {
+                if (img.previewUrl === newImages[i].previewUrl) {
+                    return { ...img, uploading: false, uploadedUrl: result?.url };
+                }
+                return img;
+            }));
+        }
+    };
+
+    // Handle paste
+    const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        const imageFiles: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.startsWith('image/')) {
+                const file = items[i].getAsFile();
+                if (file) imageFiles.push(file);
+            }
+        }
+
+        if (imageFiles.length > 0) {
+            e.preventDefault();
+            const dataTransfer = new DataTransfer();
+            imageFiles.forEach(f => dataTransfer.items.add(f));
+            handleFileSelect(dataTransfer.files);
+        }
+    };
+
+    // Remove attached image
+    const removeImage = (previewUrl: string) => {
+        setAttachedImages(prev => {
+            const toRemove = prev.find(img => img.previewUrl === previewUrl);
+            if (toRemove) {
+                URL.revokeObjectURL(toRemove.previewUrl);
+            }
+            return prev.filter(img => img.previewUrl !== previewUrl);
+        });
+    };
+
     // Handle send
     const handleSend = () => {
         const trimmed = value.trim();
-        if (!trimmed || isLoading) return;
+        const uploadedUrls = attachedImages
+            .filter(img => img.uploadedUrl)
+            .map(img => img.uploadedUrl!);
 
-        onSend(trimmed);
+        if (!trimmed && uploadedUrls.length === 0) return;
+        if (isLoading) return;
+
+        // Check if any images still uploading
+        if (attachedImages.some(img => img.uploading)) {
+            alert('Please wait for images to finish uploading');
+            return;
+        }
+
+        onSend(trimmed, uploadedUrls.length > 0 ? uploadedUrls : undefined);
         setValue('');
-        // We do NOT reset search here if we want persistence, or we can let parent decide.
-        // User asked to "enable web search capabilities", usually per-message or session. 
-        // Let's assume per-message but sticky? "toggle" implies sticky or per-message.
-        // I'll leave the reset logic to the parent if desired.
+
+        // Clear attached images
+        attachedImages.forEach(img => URL.revokeObjectURL(img.previewUrl));
+        setAttachedImages([]);
 
         // Reset height
         if (textareaRef.current) {
@@ -61,6 +199,25 @@ export default function ChatInput({
 
     return (
         <div className={`chat-input-wrapper ${compact ? 'compact' : ''}`}>
+            {/* Attached images preview */}
+            {attachedImages.length > 0 && (
+                <div className="attached-images-preview">
+                    {attachedImages.map((img) => (
+                        <div key={img.previewUrl} className={`attached-image ${img.uploading ? 'uploading' : ''}`}>
+                            <img src={img.previewUrl} alt="Attached" />
+                            {img.uploading && <div className="upload-spinner" />}
+                            <button
+                                className="remove-image-btn"
+                                onClick={() => removeImage(img.previewUrl)}
+                                type="button"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             <div className="chat-input-card">
                 <textarea
                     ref={textareaRef}
@@ -68,12 +225,35 @@ export default function ChatInput({
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                     placeholder={compact ? "Type a message..." : "Reply to Arbor..."}
                     disabled={isLoading}
                     rows={1}
                 />
                 <div className="chat-input-footer">
                     <div className="chat-input-tools">
+                        {/* Image attachment button */}
+                        <button
+                            className="chat-tool-btn"
+                            type="button"
+                            title="Attach image"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                <polyline points="21 15 16 10 5 21" />
+                            </svg>
+                        </button>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/jpg,image/webp,image/heic,.png,.jpg,.jpeg,.webp,.heic"
+                            multiple
+                            style={{ display: 'none' }}
+                            onChange={(e) => handleFileSelect(e.target.files)}
+                        />
+
                         <button
                             className={`chat-tool-btn ${isSearchEnabled ? 'active' : ''}`}
                             type="button"
@@ -109,7 +289,7 @@ export default function ChatInput({
                             <button
                                 className="chat-send-btn-icon"
                                 onClick={handleSend}
-                                disabled={!value.trim()}
+                                disabled={!value.trim() && attachedImages.length === 0}
                                 type="button"
                                 title="Send message"
                             >

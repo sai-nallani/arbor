@@ -20,6 +20,9 @@ interface ChatBlockWithMessages {
     title: string;
     positionX: number;
     positionY: number;
+    model?: string;
+    isExpanded?: boolean;
+    hasImage?: boolean; // Persisted strict mode for vision models
     messages: Array<{
         id: string;
         role: string;
@@ -36,14 +39,38 @@ interface MessageLink {
     quoteText: string | null;
 }
 
+interface FileNodeData {
+    id: string;
+    name: string;
+    mimeType: string;
+    url: string;
+    positionX: number;
+    positionY: number;
+}
+
+interface FileLinkData {
+    id: string;
+    chatBlockId: string;
+    fileNodeId: string;
+}
+
 interface CanvasWrapperProps {
     boardId: string;
     boardName: string;
     initialBlocks: ChatBlockWithMessages[];
     initialLinks?: MessageLink[];
+    initialFiles?: FileNodeData[];
+    initialFileLinks?: FileLinkData[];
 }
 
-export default function CanvasWrapper({ boardId, boardName, initialBlocks, initialLinks }: CanvasWrapperProps) {
+export default function CanvasWrapper({
+    boardId,
+    boardName,
+    initialBlocks,
+    initialLinks,
+    initialFiles,
+    initialFileLinks
+}: CanvasWrapperProps) {
     return (
         <div className="canvas-container">
             <Canvas
@@ -51,6 +78,8 @@ export default function CanvasWrapper({ boardId, boardName, initialBlocks, initi
                 boardName={boardName}
                 initialBlocks={initialBlocks}
                 initialLinks={initialLinks}
+                initialFiles={initialFiles}
+                initialFileLinks={initialFileLinks}
             />
         </div>
     );

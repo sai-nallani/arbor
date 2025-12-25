@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
-import { boards, chatBlocks, messages, messageLinks } from '@/db/schema';
+import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import CanvasWrapper from '@/components/canvas/CanvasWrapper';
 
@@ -10,6 +10,9 @@ interface ChatBlockWithMessages {
     title: string;
     positionX: number;
     positionY: number;
+    model: string;
+    isExpanded: boolean;
+    hasImage: boolean;
     messages: Array<{
         id: string;
         role: string;
@@ -46,6 +49,22 @@ export default async function BoardPage({ params }: PageProps) {
         .from(chatBlocks)
         .where(eq(chatBlocks.boardId, boardId));
 
+    // Fetch all file nodes (images) for this board
+    const files = await db
+        .select()
+        .from(fileNodes)
+        .where(eq(fileNodes.boardId, boardId));
+
+    // Fetch file links to reconstruct edges
+    const linksData = await db
+        .select()
+        .from(fileLinks)
+        .innerJoin(fileNodes, eq(fileLinks.fileNodeId, fileNodes.id))
+        .where(eq(fileNodes.boardId, boardId));
+
+    // Map file links to simpler format if needed, or pass as is
+    // We'll pass raw links for now
+
     // Fetch messages for all blocks
     const blocksWithMessages: ChatBlockWithMessages[] = await Promise.all(
         blocks.map(async (block) => {
@@ -60,6 +79,9 @@ export default async function BoardPage({ params }: PageProps) {
                 title: block.title,
                 positionX: block.positionX,
                 positionY: block.positionY,
+                model: block.model,
+                isExpanded: block.isExpanded || false,
+                hasImage: block.hasImage || false,
                 messages: blockMessages.map((m) => ({
                     id: m.id,
                     role: m.role,
@@ -69,17 +91,16 @@ export default async function BoardPage({ params }: PageProps) {
         })
     );
 
-    // Fetch message links (footnotes)
-    // We want all links where the target block is in this board
-    // Filter outgoing links from messages in this board
-    const blockIds = blocks.map(b => b.id);
-    let links: typeof messageLinks.$inferSelect[] = [];
+    // Fetch message links (footnotes) based on SOURCE messages
+    // This ensures we get all highlights that should be rendered on the loaded messages
+    const allMessageIds = blocksWithMessages.flatMap(b => b.messages.map(m => m.id));
+    let footnotes: typeof messageLinks.$inferSelect[] = [];
 
-    if (blockIds.length > 0) {
-        links = await db
+    if (allMessageIds.length > 0) {
+        footnotes = await db
             .select()
             .from(messageLinks)
-            .where(inArray(messageLinks.targetBlockId, blockIds));
+            .where(inArray(messageLinks.sourceMessageId, allMessageIds));
     }
 
     return (
@@ -87,7 +108,9 @@ export default async function BoardPage({ params }: PageProps) {
             boardId={boardId}
             boardName={board[0].name}
             initialBlocks={blocksWithMessages}
-            initialLinks={links}
+            initialLinks={footnotes}
+            initialFiles={files}
+            initialFileLinks={linksData.map(l => l.file_links)}
         />
     );
 }

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, doublePrecision, uuid, uniqueIndex, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, doublePrecision, uuid, uniqueIndex, boolean, jsonb } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ============================================
@@ -32,8 +32,9 @@ export const chatBlocks = pgTable('chat_blocks', {
     positionX: doublePrecision('position_x').notNull(),
     positionY: doublePrecision('position_y').notNull(),
     isExpanded: boolean('is_expanded').default(false),
+    hasImage: boolean('has_image').default(false), // True if chat contains images (locks to OpenAI models)
     parentId: uuid('parent_id').references(() => chatBlocks.id, { onDelete: 'set null' }), // Self-reference for branching
-    branchContext: text('branch_context'), // Compressed context from parent chain
+    branchContext: jsonb('branch_context'), // Array of message IDs from parent chain
     branchSourceText: text('branch_source_text'), // The highlighted text that spawned this branch
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

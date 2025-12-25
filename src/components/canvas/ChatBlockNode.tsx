@@ -15,14 +15,18 @@ interface ChatBlockData {
     }>;
     links?: Record<string, any[]>;
     model?: string;
+    boardId?: string;
+    hasImage?: boolean;
     onOpen?: () => void;
     onMaximize?: (blockId: string) => void;
     onDelete?: (blockId: string) => void;
     onRename?: (blockId: string, newTitle: string) => void;
     onModelChange?: (blockId: string, newModel: string) => void;
     onExpandToggle?: (blockId: string, isExpanded: boolean) => void;
+    onHasImageChange?: (blockId: string, hasImage: boolean) => void;
     onBranch?: (sourceMessageId: string, quoteStart: number, quoteEnd: number, quoteText: string, contextMessages: any[]) => void;
     onLinkClick?: (targetBlockId: string) => void;
+    onImageUploaded?: (imageInfo: { id: string; url: string; name: string, mimeType?: string }) => void;
     isExpanded?: boolean;
     branchContext?: string;
 }
@@ -98,13 +102,14 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
     return (
         <>
             <div
-                className={`chat-block-node ${selected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}`}
+                className={`chat-block-node ${selected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''} ${hasBeenResized ? 'resized' : ''}`}
                 style={isExpanded ? {
-                    width: 500,
-                    height: 550,
+                    width: '100%',
+                    height: '100%',
                     minWidth: 400,
                     minHeight: 350,
-                    cursor: 'default'
+                    cursor: 'default',
+                    transition: 'none' // Disable transition when expanded to allow smooth resizing
                 } : undefined}
             >
                 {/* Input handle for connections */}
@@ -117,6 +122,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                 {isExpanded ? (
                     <EmbeddedChat
                         blockId={data.id}
+                        boardId={data.boardId || ''}
                         title={data.title}
                         initialMessages={data.messages}
                         onClose={handleClose}
@@ -129,6 +135,9 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                         branchContext={data.branchContext}
                         onModelChange={(model) => data.onModelChange?.(data.id, model)}
                         hasBeenResized={hasBeenResized}
+                        hasImage={!!data.hasImage}
+                        onImageUploaded={data.onImageUploaded}
+                        onHasImageChange={(hasImage) => data.onHasImageChange?.(data.id, hasImage)}
                     />
                 ) : (
                     <>
@@ -202,11 +211,20 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     </>
                 )}
 
-                {/* Output handle for branching */}
+                {/* Input handle for incoming connections (Start of chat) */}
+                <Handle
+                    type="target"
+                    position={Position.Top}
+                    className="chat-block-handle"
+                    id="top"
+                />
+
+                {/* Output handle for branching (End of chat) */}
                 <Handle
                     type="source"
                     position={Position.Bottom}
                     className="chat-block-handle"
+                    id="bottom"
                 />
             </div>
 

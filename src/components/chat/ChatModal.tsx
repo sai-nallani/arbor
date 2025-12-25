@@ -60,11 +60,19 @@ export default function ChatModal({
     // Handle send
     const handleSend = async (content: string) => {
         // Save user message first
-        await fetch(`/api/chat-blocks/${blockId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: 'user', content }),
-        });
+        try {
+            const response = await fetch(`/api/chat-blocks/${blockId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: 'user', content }),
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[ChatModal] Failed to save user message:', response.status, errorText);
+            }
+        } catch (err) {
+            console.error('[ChatModal] Network error saving user message:', err);
+        }
 
         // Then send to AI
         sendMessage(content);
@@ -104,7 +112,7 @@ export default function ChatModal({
                             <ChatMessage
                                 key={`msg-${index}`}
                                 role={msg.role as 'user' | 'assistant'}
-                                content={msg.content}
+                                content={typeof msg.content === 'string' ? msg.content : (Array.isArray(msg.content) ? msg.content.map((c: any) => c.type === 'text' ? c.text : '').join('') : '')}
                                 isStreaming={status === 'streaming' && index === messages.length - 1 && msg.role === 'assistant'}
                             />
                         ))

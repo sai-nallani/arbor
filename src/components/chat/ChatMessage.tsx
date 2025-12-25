@@ -6,7 +6,7 @@ interface ChatMessageProps {
     role: 'user' | 'assistant';
     content: string;
     isStreaming?: boolean;
-    onContextMenu?: (e: React.MouseEvent) => void;
+    onMouseUp?: (e: React.MouseEvent) => void;
     links?: Array<{
         id: string;
         quoteStart: number;
@@ -14,6 +14,7 @@ interface ChatMessageProps {
         targetBlockId: string;
     }>;
     highlightStart?: number;
+    highlightEnd?: number;
     onLinkClick?: (targetBlockId: string) => void;
     [key: string]: any; // Allow data attributes
 }
@@ -25,9 +26,23 @@ import 'katex/dist/katex.min.css';
 
 // ... (keep interface)
 
-function ChatMessage({ role, content, isStreaming, onContextMenu, links, highlightStart, highlightEnd, onLinkClick, ...props }: ChatMessageProps) {
+function ChatMessage({ role, content, isStreaming, onMouseUp, links, highlightStart, highlightEnd, onLinkClick, ...props }: ChatMessageProps) {
+    // Parse IMAGE markers and extract URLs
+    const parseImageMarkers = (text: string): { cleanText: string; imageUrls: string[] } => {
+        const imageMarkerRegex = /\[IMAGE:(https?:\/\/[^\]]+)\]/g;
+        const imageUrls: string[] = [];
+        let match;
+        while ((match = imageMarkerRegex.exec(text)) !== null) {
+            imageUrls.push(match[1]);
+        }
+        const cleanText = text.replace(imageMarkerRegex, '');
+        return { cleanText, imageUrls };
+    };
+
+    const { cleanText, imageUrls } = parseImageMarkers(content || '');
+
     const renderContent = () => {
-        if (!content) return isStreaming ? '' : '...';
+        if (!cleanText && imageUrls.length === 0) return isStreaming ? '' : '...';
 
         // Collect all ranges to style (links + active highlight)
         const ranges: Array<{ start: number; end: number; type: 'link' | 'highlight'; data?: any }> = [];
@@ -50,28 +65,34 @@ function ChatMessage({ role, content, isStreaming, onContextMenu, links, highlig
 
         ranges.forEach((range, idx) => {
             // Skip invalid or overlapping ranges for simplicity
-            if (range.start < lastIndex || range.start >= content.length) return;
+            if (range.start < lastIndex || range.start >= cleanText.length) return;
 
             // Text before range -> Render as Markdown
             if (range.start > lastIndex) {
-                const textPart = content.slice(lastIndex, range.start);
+                const textPart = cleanText.slice(lastIndex, range.start);
                 segments.push(
                     <ReactMarkdown
                         key={`text-${lastIndex}`}
                         remarkPlugins={[remarkMath]}
                         rehypePlugins={[rehypeKatex]}
+                        components={{
+                            p: ({ children }) => <span style={{ display: 'inline' }}>{children}</span>,
+                            div: ({ children }) => <span style={{ display: 'inline' }}>{children}</span>,
+                        }}
                     >
                         {textPart}
                     </ReactMarkdown>
                 );
             }
 
-            // Range text -> Keep as raw string inside the span (no markdown inside highlights for now to avoid hydration issues)
-            // Or we could render markdown inside too? Let's keep it simple first.
-            const end = Math.min(range.end, content.length);
-            const text = content.slice(range.start, end);
+            // Range text -> Rendered as a span to avoid breaking layout
+            const end = Math.min(range.end, cleanText.length);
+            const text = cleanText.slice(range.start, end);
 
             if (range.type === 'link') {
+                segments.push(
+                    <span key={`link-space-before-${idx}`}> </span>
+                );
                 segments.push(
                     <span
                         key={`link-${idx}`}
@@ -87,13 +108,19 @@ function ChatMessage({ role, content, isStreaming, onContextMenu, links, highlig
                             cursor: 'pointer',
                             borderRadius: '2px',
                             padding: '0 2px',
-                            display: 'inline-block' // Ensure it sits well with markdown blocks
+                            display: 'inline' // Changed to inline to avoid breaking text flow
                         }}
                     >
                         {text}
                     </span>
                 );
+                segments.push(
+                    <span key={`link-space-after-${idx}`}> </span>
+                );
             } else if (range.type === 'highlight') {
+                segments.push(
+                    <span key={`highlight-space-before-${idx}`}> </span>
+                );
                 segments.push(
                     <span
                         key={`highlight-${idx}`}
@@ -103,11 +130,14 @@ function ChatMessage({ role, content, isStreaming, onContextMenu, links, highlig
                             color: 'white',
                             borderRadius: '2px',
                             padding: '0 2px',
-                            display: 'inline-block'
+                            display: 'inline' // Changed to inline to avoid breaking text flow
                         }}
                     >
                         {text}
                     </span>
+                );
+                segments.push(
+                    <span key={`highlight-space-after-${idx}`}> </span>
                 );
             }
 
@@ -115,27 +145,57 @@ function ChatMessage({ role, content, isStreaming, onContextMenu, links, highlig
         });
 
         // Remaining text -> Render as Markdown
-        if (lastIndex < content.length) {
-            const textPart = content.slice(lastIndex);
+        if (lastIndex < cleanText.length) {
+            const textPart = cleanText.slice(lastIndex);
             segments.push(
                 <ReactMarkdown
                     key={`text-${lastIndex}`}
                     remarkPlugins={[remarkMath]}
                     rehypePlugins={[rehypeKatex]}
+                    components={{
+                        p: ({ children }) => <span style={{ display: 'inline' }}>{children}</span>,
+                        div: ({ children }) => <span style={{ display: 'inline' }}>{children}</span>,
+                    }}
                 >
                     {textPart}
                 </ReactMarkdown>
             );
         }
 
-        if (segments.length === 0) return (
-            <ReactMarkdown
-                remarkPlugins={[remarkMath]}
-                rehypePlugins={[rehypeKatex]}
-            >
-                {content}
-            </ReactMarkdown>
-        );
+        // If no segments, render whole clean text as markdown
+        if (segments.length === 0 && cleanText) {
+            segments.push(
+                <ReactMarkdown
+                    key="full-content"
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                >
+                    {cleanText}
+                </ReactMarkdown>
+            );
+        }
+
+        // Render attached images
+        if (imageUrls.length > 0) {
+            segments.push(
+                <div key="images" className="message-images" style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {imageUrls.map((url, i) => (
+                        <img
+                            key={`img-${i}`}
+                            src={url}
+                            alt={`Attached image ${i + 1}`}
+                            style={{
+                                maxWidth: '200px',
+                                maxHeight: '150px',
+                                borderRadius: '8px',
+                                border: '1px solid var(--accent)',
+                                objectFit: 'cover'
+                            }}
+                        />
+                    ))}
+                </div>
+            );
+        }
 
         return segments;
     };
@@ -152,7 +212,7 @@ function ChatMessage({ role, content, isStreaming, onContextMenu, links, highlig
             </div>
             <div
                 className="chat-message-body"
-                onContextMenu={onContextMenu}
+                onMouseUp={onMouseUp}
             >
                 <div className="chat-message-header">
                     <span className="chat-message-role-name">

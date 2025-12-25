@@ -10,7 +10,7 @@ import Dedalus, { DedalusRunner } from 'dedalus-labs';
 import { streamToWebResponse } from 'dedalus-react/server';
 import { db } from '@/db';
 import { messages, chatBlocks } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 const client = new Dedalus({
     apiKey: process.env.DEDALUS_API_KEY,
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { messages: chatMessages, model, chatBlockId, isSearchEnabled, branchContext } = body;
+        const { messages: chatMessages, model, chatBlockId, isSearchEnabled, branchContext, imageUrls } = body;
 
         if (!chatMessages || !Array.isArray(chatMessages)) {
             return new Response(JSON.stringify({ error: 'Messages required' }), {
@@ -38,17 +38,8 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        // If chatBlockId is provided, save the user message to database
-        if (chatBlockId) {
-            const userMessage = chatMessages[chatMessages.length - 1];
-            if (userMessage?.role === 'user') {
-                await db.insert(messages).values({
-                    chatBlockId,
-                    role: 'user',
-                    content: userMessage.content,
-                });
-            }
-        }
+        // NOTE: User message saving is now handled in EmbeddedChat.tsx to capture the database ID
+        // for branch linking. Do not save here to avoid duplicates.
 
         // Build messages for AI, including context if branched
         // First, clean up the messages - remove empty content and obvious duplicates
@@ -69,48 +60,132 @@ export async function POST(request: NextRequest) {
 
         let aiMessages = [...cleanMessages];
         if (branchContext) {
-            let contextStr = '';
+            let historyMessages: any[] = [];
             let highlightedText = '';
 
             try {
-                const parsed = JSON.parse(branchContext);
-
-                // New format with highlightedText
-                if (parsed.conversationHistory && parsed.highlightedText) {
-                    const history = parsed.conversationHistory;
-                    highlightedText = parsed.highlightedText;
-                    contextStr = history.map((m: any) => `${m.role}: ${m.content}`).join('\n');
+                // Fetch the current block to get the highlighted text if available
+                if (chatBlockId) {
+                    const [block] = await db
+                        .select()
+                        .from(chatBlocks)
+                        .where(eq(chatBlocks.id, chatBlockId));
+                    if (block && block.branchSourceText) {
+                        highlightedText = block.branchSourceText;
+                    }
                 }
-                // Legacy format (array of messages)
-                else if (Array.isArray(parsed)) {
-                    contextStr = parsed.map((m: any) => `${m.role}: ${m.content}`).join('\n');
+
+                // Check if it's an array of IDs (strings)
+                if (Array.isArray(branchContext) && branchContext.length > 0 && typeof branchContext[0] === 'string') {
+                    // Fetch messages from DB
+                    const contextMsgs = await db
+                        .select()
+                        .from(messages)
+                        .where(inArray(messages.id, branchContext))
+                        .orderBy(messages.createdAt);
+
+                    historyMessages = contextMsgs.map(m => ({
+                        role: m.role,
+                        content: m.content
+                    }));
+                } else {
+                    // Legacy/Fallback parsing
+                    const parsed = typeof branchContext === 'string' ? JSON.parse(branchContext) : branchContext;
+                    if (Array.isArray(parsed)) {
+                        historyMessages = parsed.map((m: any) => ({
+                            role: m.role,
+                            content: m.content
+                        }));
+                    }
                 }
             } catch (e) {
-                contextStr = branchContext;
+                console.warn('Failed to parse branchContext:', e);
             }
 
-            const systemPrompt = highlightedText
-                ? `The user has branched from a previous conversation. They specifically highlighted this text: "${highlightedText}"
+            if (historyMessages.length > 0) {
+                const systemInstruction = highlightedText
+                    ? `The user has branched from the conversation above by highlighting this text: "${highlightedText}". 
+                       The user's next message is a continuation based on this specific context. Please respond accordingly.`
+                    : `The user has branched from the conversation above. Please continue based on that context.`;
 
-Previous conversation context:
-${contextStr}
----
-The user's question relates to the highlighted text above. Please provide a focused response.`
-                : `Reference Context from previous branch:\n${contextStr}\n---\nContinue the conversation based on this context.`;
+                aiMessages = [
+                    ...historyMessages,
+                    {
+                        role: 'system',
+                        content: systemInstruction
+                    },
+                    ...chatMessages
+                ];
+            }
+        }
 
-            aiMessages = [
-                {
-                    role: 'system',
-                    content: systemPrompt
-                },
-                ...chatMessages
-            ];
+        // Parse IMAGE markers from message content if imageUrls not provided directly
+        let resolvedImageUrls = imageUrls || [];
+        const lastMessage = aiMessages[aiMessages.length - 1];
+        if (lastMessage && lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+            const imageMarkerRegex = /\[IMAGE:(https?:\/\/[^\]]+)\]/g;
+            const matches = lastMessage.content.match(imageMarkerRegex);
+            if (matches) {
+                // Extract URLs from markers
+                const extractedUrls = matches.map((m: string) => m.replace('[IMAGE:', '').replace(']', ''));
+                resolvedImageUrls = [...resolvedImageUrls, ...extractedUrls];
+                // Remove markers from message content
+                const cleanContent = lastMessage.content.replace(imageMarkerRegex, '').trim();
+                aiMessages[aiMessages.length - 1] = { ...lastMessage, content: cleanContent };
+            }
+        }
+
+        // If images are provided (or parsed from markers), format as multimodal content
+        if (resolvedImageUrls.length > 0) {
+            const lastMsg = aiMessages[aiMessages.length - 1];
+            if (lastMsg && lastMsg.role === 'user') {
+                // Build multimodal content array
+                const contentParts: any[] = [];
+
+                // Add text if present
+                if (lastMsg.content && typeof lastMsg.content === 'string' && lastMsg.content.trim()) {
+                    contentParts.push({
+                        type: 'text',
+                        text: lastMsg.content
+                    });
+                }
+
+                // Add image URLs
+                for (const url of resolvedImageUrls) {
+                    contentParts.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: url
+                        }
+                    });
+                }
+
+                // Replace the last message with multimodal content
+                aiMessages[aiMessages.length - 1] = {
+                    role: 'user',
+                    content: contentParts
+                };
+            }
         }
 
         // Create streaming response using Dedalus
+        let targetModel = model || 'anthropic/claude-opus-4';
+
+        // Validate model for image inputs
+        if (resolvedImageUrls.length > 0) {
+            // Dedalus only supports OpenAI for images currently
+            if (!targetModel.startsWith('openai/')) {
+                // Auto-switch to GPT-4o or return error? 
+                // User asked to "not allow", so let's be strict or auto-switch.
+                // Auto-switching is safer for UX.
+                console.log(`Auto-switching model from ${targetModel} to openai/gpt-4o for image support`);
+                targetModel = 'openai/gpt-4o';
+            }
+        }
+
         const stream = await runner.run({
             messages: aiMessages,
-            model: model || 'anthropic/claude-opus-4',
+            model: targetModel,
             stream: true,
             mcp_servers: isSearchEnabled ? ['https://mcp.exa.ai/mcp'] : undefined,
         });

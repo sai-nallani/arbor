@@ -77,25 +77,29 @@ export async function PATCH(
 
         const { blockId } = await params;
         const body = await request.json();
-        const { title, positionX, positionY, model, isExpanded } = body;
+        const { title, positionX, positionY, model, isExpanded, hasImage } = body;
 
         // Fetch the block first
+        console.log(`[PATCH /api/chat-blocks/${blockId}] Fetching block...`);
         const block = await db
             .select()
             .from(chatBlocks)
             .where(eq(chatBlocks.id, blockId));
 
         if (block.length === 0) {
+            console.warn(`[PATCH /api/chat-blocks/${blockId}] Block NOT FOUND in database`);
             return NextResponse.json({ error: 'Block not found' }, { status: 404 });
         }
 
         // Verify user owns the board
+        console.log(`[PATCH /api/chat-blocks/${blockId}] Verifying ownership for board ${block[0].boardId} by user ${userId}`);
         const board = await db
             .select()
             .from(boards)
             .where(and(eq(boards.id, block[0].boardId), eq(boards.userId, userId)));
 
         if (board.length === 0) {
+            console.warn(`[PATCH /api/chat-blocks/${blockId}] Authorization failed: User does not own board ${block[0].boardId}`);
             return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
         }
 
@@ -109,6 +113,9 @@ export async function PATCH(
         if (positionY !== undefined) updates.positionY = positionY;
         if (model !== undefined) updates.model = model;
         if (isExpanded !== undefined) updates.isExpanded = isExpanded;
+        if (hasImage !== undefined) updates.hasImage = hasImage;
+
+        console.log(`[PATCH /api/chat-blocks/${blockId}] Applying updates:`, updates);
 
         // Update the block
         const [updatedBlock] = await db
@@ -116,6 +123,8 @@ export async function PATCH(
             .set(updates)
             .where(eq(chatBlocks.id, blockId))
             .returning();
+
+        console.log(`[PATCH /api/chat-blocks/${blockId}] Update successful`);
 
         return NextResponse.json(updatedBlock);
     } catch (error) {
