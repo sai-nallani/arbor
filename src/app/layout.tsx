@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Arbor - Thoughts branch, So should your conversations",
   description: "A spatial chat application where conversations branch, connect, and evolve naturally on an infinite canvas.",
+  icons: {
+    icon: "/arbor.svg",
+    shortcut: "/arbor.svg",
+    apple: "/arbor.svg",
+  },
 };
 
 export default function RootLayout({

@@ -25,7 +25,7 @@ async function testNormalConversation() {
 
     try {
         const stream = await runner.run({
-            messages,
+            messages: messages as any,
             model: 'anthropic/claude-opus-4-5',
             stream: true,
         });
@@ -65,7 +65,7 @@ async function testConsecutiveUserMessages() {
 
     try {
         const stream = await runner.run({
-            messages,
+            messages: messages as any,
             model: 'anthropic/claude-opus-4-5',
             stream: true,
         });
@@ -114,7 +114,7 @@ async function testWithContext() {
 
     try {
         const stream = await runner.run({
-            messages,
+            messages: messages as any,
             model: 'anthropic/claude-opus-4-5',
             stream: true,
         });
