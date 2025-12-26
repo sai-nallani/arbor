@@ -20,6 +20,8 @@ interface ChatBlockWithMessages {
     title: string;
     positionX: number;
     positionY: number;
+    width?: number;
+    height?: number;
     model?: string;
     isExpanded?: boolean;
     hasImage?: boolean; // Persisted strict mode for vision models

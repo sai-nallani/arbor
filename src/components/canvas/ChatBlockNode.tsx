@@ -27,6 +27,7 @@ interface ChatBlockData {
     onBranch?: (sourceMessageId: string, quoteStart: number, quoteEnd: number, quoteText: string, contextMessages: any[]) => void;
     onLinkClick?: (targetBlockId: string) => void;
     onImageUploaded?: (imageInfo: { id: string; url: string; name: string, mimeType?: string }) => void;
+    onCreateStickyNote?: (content: string) => void;
     isExpanded?: boolean;
     branchContext?: string;
 }
@@ -127,8 +128,8 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
             <div
                 className={`chat-block-node ${selected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''} ${hasBeenResized ? 'resized' : ''}`}
                 style={isExpanded ? {
-                    width: hasBeenResized ? '100%' : 800,
-                    height: hasBeenResized ? '100%' : 800,
+                    width: '100%',
+                    height: '100%',
                     minWidth: 400,
                     minHeight: 350,
                     cursor: 'default',
@@ -158,6 +159,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                         onImageUploaded={data.onImageUploaded}
                         onHasImageChange={handleHasImageChange}
                         onRename={handleRenameFromChat}
+                        onCreateStickyNote={data.onCreateStickyNote}
                     />
                 ) : (
                     <>

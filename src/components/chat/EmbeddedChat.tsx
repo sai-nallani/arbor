@@ -28,6 +28,7 @@ interface EmbeddedChatProps {
     onImageUploaded?: (imageInfo: { id: string; url: string; name: string, mimeType?: string }) => void;
     onHasImageChange?: (hasImage: boolean) => void; // Callback to persist hasImage to DB
     onRename?: (newTitle: string) => void;
+    onCreateStickyNote?: (content: string) => void; // Create a sticky note with the highlighted text
 }
 
 interface ContextMenuState {
@@ -65,6 +66,7 @@ export default function EmbeddedChat({
     onImageUploaded,
     onHasImageChange,
     onRename,
+    onCreateStickyNote,
 }: EmbeddedChatProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -683,6 +685,16 @@ export default function EmbeddedChat({
                         {
                             label: 'Branch from here',
                             onClick: initiateBranch,
+                        },
+                        {
+                            label: 'Create Sticky Note',
+                            onClick: () => {
+                                if (contextMenu && onCreateStickyNote) {
+                                    onCreateStickyNote(contextMenu.quoteText);
+                                    setContextMenu(null);
+                                    window.getSelection()?.removeAllRanges();
+                                }
+                            },
                         },
                     ]}
                 />

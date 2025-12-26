@@ -31,6 +31,8 @@ export const chatBlocks = pgTable('chat_blocks', {
     model: text('model').default('openai/gpt-5').notNull(),
     positionX: doublePrecision('position_x').notNull(),
     positionY: doublePrecision('position_y').notNull(),
+    width: doublePrecision('width').default(800),
+    height: doublePrecision('height').default(800),
     isExpanded: boolean('is_expanded').default(false),
     hasImage: boolean('has_image').default(false), // True if chat contains images (locks to OpenAI models)
     parentId: uuid('parent_id').references((): AnyPgColumn => chatBlocks.id, { onDelete: 'set null' }), // Self-reference for branching

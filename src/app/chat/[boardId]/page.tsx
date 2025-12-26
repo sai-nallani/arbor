@@ -79,6 +79,8 @@ export default async function BoardPage({ params }: PageProps) {
                 title: block.title,
                 positionX: block.positionX,
                 positionY: block.positionY,
+                width: block.width || 800,
+                height: block.height || 800,
                 model: block.model,
                 isExpanded: block.isExpanded || false,
                 hasImage: block.hasImage || false,

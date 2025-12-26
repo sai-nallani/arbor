@@ -42,6 +42,8 @@ interface ChatBlockWithMessages {
     title: string;
     positionX: number;
     positionY: number;
+    width?: number;
+    height?: number;
     isExpanded?: boolean;
     branchContext?: string;
     model?: string;
@@ -148,6 +150,7 @@ export default function Canvas({
                 id: block.id,
                 type: 'chatBlock',
                 position: { x: block.positionX, y: block.positionY },
+                style: { width: block.width || 800, height: block.height || 800 },
                 data: {
                     id: block.id,
                     boardId: boardId,
@@ -504,6 +507,64 @@ export default function Canvas({
         }
     }, [setNodes]);
 
+    // Create Sticky Note from highlighted text (called from context menu)
+    const handleCreateStickyNote = useCallback(async (sourceNodeId: string, content: string) => {
+        // Find the source node to position the sticky note nearby
+        const sourceNode = nodes.find(n => n.id === sourceNodeId);
+        const baseX = sourceNode?.position.x ?? 250;
+        const baseY = sourceNode?.position.y ?? 150;
+
+        // Position to the right of the source node
+        const positionX = baseX + 500;
+        const positionY = baseY;
+
+        const tempId = `temp-sticky-${Date.now()}`;
+
+        // Optimistic update
+        setNodes((nds) => nds.concat({
+            id: tempId,
+            type: 'stickyNote',
+            position: { x: positionX, y: positionY },
+            data: {
+                id: tempId,
+                content,
+                color: 'yellow',
+                onUpdate: updateStickyNote,
+                onDelete: deleteStickyNote,
+            },
+        }));
+
+        // Create on server
+        try {
+            const response = await fetch('/api/sticky-notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    boardId,
+                    positionX,
+                    positionY,
+                    content,
+                    color: 'yellow',
+                }),
+            });
+
+            if (response.ok) {
+                const note = await response.json();
+                setNodes((nds) =>
+                    nds.map(n => n.id === tempId ? { ...n, id: note.id, data: { ...n.data, id: note.id } } : n)
+                );
+            } else {
+                console.error('Failed to save sticky note');
+                setNodes(nds => nds.filter(n => n.id !== tempId));
+                setErrorToast('Failed to save sticky note');
+            }
+        } catch (error) {
+            console.error('Error creating sticky note:', error);
+            setNodes(nds => nds.filter(n => n.id !== tempId));
+            setErrorToast('Error creating sticky note');
+        }
+    }, [nodes, setNodes, boardId, updateStickyNote, deleteStickyNote]);
+
     // Inject callbacks into nodes (especially for sticky notes)
     useEffect(() => {
         setNodes((nds) => nds.map((node) => {
@@ -693,7 +754,7 @@ export default function Canvas({
                     target: connection.target!,
                     sourceHandle: connection.sourceHandle,
                     targetHandle: connection.targetHandle,
-                    type: 'smoothstep',
+                    type: 'context', // Use context edge type for delete button
                     animated: false,
                     style: { stroke: 'var(--muted)', strokeWidth: 2 },
                     markerEnd: {
@@ -1126,6 +1187,7 @@ export default function Canvas({
                         id: newBlock.id,
                         type: 'chatBlock',
                         position: { x: newX, y: newY },
+                        style: { width: 800, height: 800 },
                         data: {
                             id: newBlock.id,
                             boardId: boardId,
@@ -1398,10 +1460,11 @@ export default function Canvas({
                         handleBranch(node.id, sourceMessageId, quoteStart, quoteEnd, quoteText, contextMessages),
                     onLinkClick: (targetBlockId: string) => handleLinkClick(node.id, targetBlockId),
                     onImageUploaded: (imageInfo: { id: string; url: string; name: string, mimeType?: string }) => handleImageUploaded(node.id, imageInfo),
+                    onCreateStickyNote: (content: string) => handleCreateStickyNote(node.id, content),
                 },
             };
         });
-    }, [nodes, maximizeBlock, deleteBlock, renameBlock, handleModelChange, handleBranch, handleLinkClick, handleExpandToggle, handleImageUploaded, handleHasImageChange]);
+    }, [nodes, maximizeBlock, deleteBlock, renameBlock, handleModelChange, handleBranch, handleLinkClick, handleExpandToggle, handleImageUploaded, handleHasImageChange, handleCreateStickyNote]);
 
     // Update node position on drag end
     const handleNodesChange = useCallback((changes: any) => {
@@ -1445,6 +1508,35 @@ export default function Canvas({
                     console.error('Error saving node position:', error);
                 }
             }
+
+            // Save dimension changes (resize)
+            if (change.type === 'dimensions' && change.dimensions) {
+                const node = nodesRef.current.find(n => n.id === change.id);
+                if (!node) return;
+
+                // Ignore temporary nodes
+                if (change.id.startsWith('temp-')) return;
+
+                // Only chatBlocks persist dimensions for now
+                if (node.type !== 'chatBlock') return;
+
+                try {
+                    const response = await fetch(`/api/chat-blocks/${change.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            width: change.dimensions.width,
+                            height: change.dimensions.height,
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        console.error('Failed to save node dimensions');
+                    }
+                } catch (error) {
+                    console.error('Error saving node dimensions:', error);
+                }
+            }
         });
     }, [onNodesChange]); // Removed 'nodes' dependency
 
@@ -1474,6 +1566,7 @@ export default function Canvas({
                 id: tempId,
                 type: 'chatBlock',
                 position: { x: clickX, y: clickY },
+                style: { width: 800, height: 800 },
                 data: {
                     id: tempId,
                     boardId: boardId,
