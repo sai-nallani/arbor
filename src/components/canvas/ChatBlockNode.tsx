@@ -361,7 +361,22 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     minWidth={400}
                     minHeight={350}
                     handleStyle={{ width: 8, height: 8, zIndex: 1000 }}
-                    onResizeEnd={() => setHasBeenResized(true)}
+                    onResizeEnd={(event, params) => {
+                        // console.log('onResizeEnd called:', data.id, params);
+                        setHasBeenResized(true);
+                        // Persist the new dimensions
+                        const width = params.width || params.x;
+                        const height = params.height || params.y;
+                        // console.log('Saving dimensions:', { width, height });
+                        if (width && height) {
+                            fetch(`/api/chat-blocks/${data.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ width, height }),
+                            })
+                                .catch(err => console.error('Failed to save dimensions:', err));
+                        }
+                    }}
                 />
             )}
         </>

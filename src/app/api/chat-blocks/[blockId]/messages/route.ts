@@ -34,7 +34,7 @@ export async function POST(
 
         const { role, content } = body;
 
-        console.log(`[API] Saving message for block ${blockId}:`, { role, contentLength: content?.length, contentSample: typeof content === 'string' ? content.slice(0, 20) : content });
+        // console.log(`[API] Saving message for block ${blockId}:`, { role, contentLength: content?.length, contentSample: typeof content === 'string' ? content.slice(0, 20) : content });
 
         // Relaxed validation: Allow empty string for content, but role matches
         if (!role || content === undefined || content === null) {

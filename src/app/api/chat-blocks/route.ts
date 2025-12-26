@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
                     quoteText: quoteText || null,
                 }).returning();
                 linkId = newLink.id;
-                console.log('[POST /api/chat-blocks] Message link created with ID:', linkId);
+                // console.log('[POST /api/chat-blocks] Message link created with ID:', linkId);
             }
 
             return { ...newBlock, linkId, messages: createdMessages };

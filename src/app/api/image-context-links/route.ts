@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
             targetBlockId: chatBlockId,
         }).returning();
 
-        console.log('[POST /api/image-context-links] Created link:', imageNodeId, '→', chatBlockId);
+        // console.log('[POST /api/image-context-links] Created link:', imageNodeId, '→', chatBlockId);
 
         return NextResponse.json(newLink[0], { status: 201 });
 
@@ -121,7 +121,7 @@ export async function DELETE(request: NextRequest) {
             )
         );
 
-        console.log('[DELETE /api/image-context-links] Deleted link:', imageNodeId, '→', chatBlockId);
+        // console.log('[DELETE /api/image-context-links] Deleted link:', imageNodeId, '→', chatBlockId);
 
         return NextResponse.json({ success: true });
 

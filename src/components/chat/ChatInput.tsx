@@ -69,7 +69,7 @@ export default function ChatInput({
         }
 
         // Upload to storage AND create DB record immediately so canvas node appears
-        console.log(`[ChatInput] Uploading image and creating DB record: ${file.name}`);
+        // console.log(`[ChatInput] Uploading image and creating DB record: ${file.name}`);
         const formData = new FormData();
         formData.append('file', file);
         formData.append('boardId', boardId);
@@ -83,7 +83,7 @@ export default function ChatInput({
             });
 
             const data = await response.json();
-            console.log('[ChatInput] Upload response:', data);
+            // console.log('[ChatInput] Upload response:', data);
 
             if (response.ok) {
                 // Notify parent to create canvas node immediately

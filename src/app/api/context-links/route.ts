@@ -120,6 +120,20 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // Check if link already exists
+        const existingLink = await db
+            .select()
+            .from(contextLinks)
+            .where(and(
+                eq(contextLinks.sourceBlockId, sourceBlockId),
+                eq(contextLinks.targetBlockId, targetBlockId)
+            ));
+
+        if (existingLink.length > 0) {
+            // Return existing link instead of error
+            return NextResponse.json(existingLink[0], { status: 200 });
+        }
+
         // Create the link
         const [newLink] = await db
             .insert(contextLinks)

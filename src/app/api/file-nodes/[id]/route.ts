@@ -10,17 +10,17 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: Promise<{ id: string }> }
 ) {
-    console.log('[PATCH /api/file-nodes] Request received');
+    // console.log('[PATCH /api/file-nodes] Request received');
     try {
         const { userId } = await auth();
-        console.log('[PATCH /api/file-nodes] userId:', userId);
+        // console.log('[PATCH /api/file-nodes] userId:', userId);
 
         if (!userId) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         const { id } = await params;
-        console.log('[PATCH /api/file-nodes] target id:', id);
+        // console.log('[PATCH /api/file-nodes] target id:', id);
 
         // Validate UUID format
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,17 +30,17 @@ export async function PATCH(
         }
 
         const body = await request.json();
-        console.log('[PATCH /api/file-nodes] body:', body);
+        // console.log('[PATCH /api/file-nodes] body:', body);
         const { name, positionX, positionY } = body;
 
         // Fetch the node first
-        console.log('[PATCH /api/file-nodes] Fetching node...');
+        // console.log('[PATCH /api/file-nodes] Fetching node...');
         const node = await db
             .select()
             .from(fileNodes)
             .where(eq(fileNodes.id, id));
 
-        console.log('[PATCH /api/file-nodes] Node found:', node.length > 0 ? 'yes' : 'no');
+        // console.log('[PATCH /api/file-nodes] Node found:', node.length > 0 ? 'yes' : 'no');
 
         if (node.length === 0) {
             console.warn('[PATCH /api/file-nodes] Node not found in database');
@@ -48,13 +48,13 @@ export async function PATCH(
         }
 
         // Verify user owns the board
-        console.log('[PATCH /api/file-nodes] Verifying board ownership for boardId:', node[0].boardId);
+        // console.log('[PATCH /api/file-nodes] Verifying board ownership for boardId:', node[0].boardId);
         const board = await db
             .select()
             .from(boards)
             .where(and(eq(boards.id, node[0].boardId), eq(boards.userId, userId)));
 
-        console.log('[PATCH /api/file-nodes] Board found:', board.length > 0 ? 'yes' : 'no');
+        // console.log('[PATCH /api/file-nodes] Board found:', board.length > 0 ? 'yes' : 'no');
 
         if (board.length === 0) {
             console.warn('[PATCH /api/file-nodes] User does not own the board');
@@ -67,7 +67,7 @@ export async function PATCH(
         if (positionX !== undefined) updates.positionX = positionX;
         if (positionY !== undefined) updates.positionY = positionY;
 
-        console.log('[PATCH /api/file-nodes] Applying updates:', updates);
+        // console.log('[PATCH /api/file-nodes] Applying updates:', updates);
 
         // Update the node
         const [updatedNode] = await db
@@ -76,7 +76,7 @@ export async function PATCH(
             .where(eq(fileNodes.id, id))
             .returning();
 
-        console.log('[PATCH /api/file-nodes] Update successful');
+        // console.log('[PATCH /api/file-nodes] Update successful');
 
         return NextResponse.json(updatedNode);
     } catch (error: any) {

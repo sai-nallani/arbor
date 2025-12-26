@@ -380,7 +380,7 @@ export default function Canvas({
                 return;
             }
 
-            console.log('Context link created:', sourceBlockId, '→', targetBlockId);
+            // console.log('Context link created:', sourceBlockId, '→', targetBlockId);
         } catch (error) {
             console.warn('Context link network error:', error);
             setErrorToast('Network error creating context link');
@@ -424,7 +424,7 @@ export default function Canvas({
                 method: 'DELETE',
             });
             if (response.ok) {
-                console.log(`${isImageContext ? 'Image context' : 'Context'} link deleted:`, sourceId, '→', targetId);
+                // console.log(`${isImageContext ? 'Image context' : 'Context'} link deleted:`, sourceId, '→', targetId);
 
                 // If it was an image context link, check if we should update the target block's hasImage state
                 if (isImageContext && targetId) {
@@ -442,7 +442,7 @@ export default function Canvas({
                     );
 
                     if (otherImageLinks.length === 0) {
-                        console.log('No remaining image links for block', targetId, '- setting hasImage=false');
+                        // console.log('No remaining image links for block', targetId, '- setting hasImage=false');
                         // Update local node state
                         setNodes((nds) => nds.map((node) => {
                             if (node.id === targetId) {
@@ -620,7 +620,7 @@ export default function Canvas({
                 return;
             }
 
-            console.log('Image context link created:', imageNodeId, '→', chatBlockId);
+            // console.log('Image context link created:', imageNodeId, '→', chatBlockId);
 
             // Update target block hasImage state to true
             setNodes((nds) => nds.map((node) => {
@@ -666,7 +666,7 @@ export default function Canvas({
                 return;
             }
 
-            console.log('Sticky context link created:', stickyNoteId, '→', chatBlockId);
+            // console.log('Sticky context link created:', stickyNoteId, '→', chatBlockId);
         } catch (error) {
             console.warn('Sticky context link network error:', error);
             setErrorToast('Network error creating sticky context link');
@@ -695,7 +695,7 @@ export default function Canvas({
             const isValidContextTarget = targetNode.type === 'chatBlock';
 
             if (!isValidContextSource || !isValidContextTarget) {
-                console.log('Invalid context link: source must be chatBlock/imageNode/stickyNote, target must be chatBlock');
+                // console.log('Invalid context link: source must be chatBlock/imageNode/stickyNote, target must be chatBlock');
                 return;
             }
 
@@ -815,13 +815,13 @@ export default function Canvas({
 
     // Delete a block or node
     const deleteBlock = useCallback(async (blockId: string) => {
-        console.log('Attempting to delete block:', blockId);
+        // console.log('Attempting to delete block:', blockId);
 
         // Determine node type before removing from state
         const nodeToDelete = nodesRef.current.find(n => n.id === blockId);
         const nodeType = nodeToDelete?.type;
 
-        console.log('Proceeding with delete for block:', blockId, 'Type:', nodeType);
+        // console.log('Proceeding with delete for block:', blockId, 'Type:', nodeType);
 
         // Optimistic update
         setNodes((nds) => {
@@ -877,7 +877,7 @@ export default function Canvas({
             if (!response.ok) {
                 console.error('Failed to delete node, status:', response.status);
             } else {
-                console.log('Node deleted from server:', blockId);
+                // console.log('Node deleted from server:', blockId);
             }
         } catch (error) {
             console.error('Failed to delete block:', error);
@@ -956,7 +956,7 @@ export default function Canvas({
         setNodes((nds) => nds.map((node) => {
             if (node.id === blockId) {
                 // Debug log to trace data persistence
-                console.log('[handleModelChange] Updating model for block:', blockId, 'Current hasImage:', node.data.hasImage);
+                // console.log('[handleModelChange] Updating model for block:', blockId, 'Current hasImage:', node.data.hasImage);
                 return {
                     ...node,
                     data: { ...node.data, model: newModel }
@@ -1289,7 +1289,7 @@ export default function Canvas({
             return;
         }
 
-        console.log(`[Canvas] Image uploaded for block ${chatBlockId}:`, imageInfo);
+        // console.log(`[Canvas] Image uploaded for block ${chatBlockId}:`, imageInfo);
 
         const chatBlock = nodes.find(n => n.id === chatBlockId);
         if (!chatBlock) {
@@ -1343,8 +1343,8 @@ export default function Canvas({
         }
 
         const patchUrl = `/api/file-nodes/${imageInfo.id}`;
-        console.log(`[Canvas] Line-by-Line: Entering persistence step for image ${imageInfo.id}`);
-        console.log(`[Canvas] Line-by-Line: Target PATCH URL: ${patchUrl}`);
+        // console.log(`[Canvas] Line-by-Line: Entering persistence step for image ${imageInfo.id}`);
+        // console.log(`[Canvas] Line-by-Line: Target PATCH URL: ${patchUrl}`);
 
         fetch(patchUrl, {
             method: 'PATCH',
@@ -1354,12 +1354,12 @@ export default function Canvas({
                 positionY: imageY
             })
         }).then(async (res) => {
-            console.log(`[Canvas] Line-by-Line: PATCH response received. Status: ${res.status}`);
+            // console.log(`[Canvas] Line-by-Line: PATCH response received. Status: ${res.status}`);
             if (res.ok) {
-                console.log('[Canvas] Line-by-Line: File node position updated successfully');
+                // console.log('[Canvas] Line-by-Line: File node position updated successfully');
 
                 // 2. Create File Link (Orbit)
-                console.log(`[Canvas] Line-by-Line: Creating file link for chatBlock: ${chatBlockId}`);
+                // console.log(`[Canvas] Line-by-Line: Creating file link for chatBlock: ${chatBlockId}`);
                 const linkRes = await fetch('/api/file-links', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1370,7 +1370,7 @@ export default function Canvas({
                 });
 
                 if (linkRes.ok) {
-                    console.log('[Canvas] Line-by-Line: File link saved');
+                    // console.log('[Canvas] Line-by-Line: File link saved');
                 } else {
                     const error = await linkRes.json().catch(() => ({}));
                     console.error('[Canvas] Line-by-Line: Failed to save file link:', linkRes.status, error);
@@ -1511,6 +1511,7 @@ export default function Canvas({
 
             // Save dimension changes (resize)
             if (change.type === 'dimensions' && change.dimensions) {
+                // console.log('Dimension change detected:', change.id, change.dimensions);
                 const node = nodesRef.current.find(n => n.id === change.id);
                 if (!node) return;
 

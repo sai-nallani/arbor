@@ -12,7 +12,7 @@ const client = new Dedalus({
 const runner = new DedalusRunner(client);
 
 async function testExactConversation(model: string) {
-    console.log(`\n========== Testing with ${model} ==========\n`);
+    // console.log(`\n========== Testing with ${model} ==========\n`);
 
     // Exact messages from the failing request
     const messages = [
@@ -32,7 +32,7 @@ async function testExactConversation(model: string) {
         { role: 'user', content: 'why is it not working' },
     ];
 
-    console.log('Messages:', messages.length, 'total');
+    // console.log('Messages:', messages.length, 'total');
 
     try {
         const stream = await runner.run({
@@ -52,15 +52,15 @@ async function testExactConversation(model: string) {
             }
         }
 
-        console.log('\n');
-        console.log('Chunks:', chunkCount);
-        console.log('Response length:', fullContent.length);
+        // console.log('\n');
+        // console.log('Chunks:', chunkCount);
+        // console.log('Response length:', fullContent.length);
 
         if (fullContent.trim() === '' || fullContent.trim() === '...') {
-            console.log('⚠️ EMPTY RESPONSE with model:', model);
+            // console.log('⚠️ EMPTY RESPONSE with model:', model);
             return false;
         } else {
-            console.log('✓ Got valid response');
+            // console.log('✓ Got valid response');
             return true;
         }
     } catch (error) {
@@ -70,7 +70,7 @@ async function testExactConversation(model: string) {
 }
 
 async function testFreshConversation(model: string) {
-    console.log(`\n========== FRESH Conversation with ${model} ==========\n`);
+    // console.log(`\n========== FRESH Conversation with ${model} ==========\n`);
 
     const messages = [
         { role: 'system', content: 'You are a helpful AI assistant.' },
@@ -93,8 +93,8 @@ async function testFreshConversation(model: string) {
             }
         }
 
-        console.log('\n');
-        console.log('Response length:', fullContent.length);
+        // console.log('\n');
+        // console.log('Response length:', fullContent.length);
         return fullContent.length > 0;
     } catch (error) {
         console.error('ERROR:', error);
@@ -103,9 +103,9 @@ async function testFreshConversation(model: string) {
 }
 
 async function main() {
-    console.log('='.repeat(60));
-    console.log('DEDALUS EXACT CONVERSATION REPRODUCTION');
-    console.log('='.repeat(60));
+    // console.log('='.repeat(60));
+    // console.log('DEDALUS EXACT CONVERSATION REPRODUCTION');
+    // console.log('='.repeat(60));
 
     if (!process.env.DEDALUS_API_KEY) {
         console.error('ERROR: DEDALUS_API_KEY not set');
@@ -120,11 +120,11 @@ async function main() {
     const claudeResult = await testExactConversation('anthropic/claude-opus-4-5');
     const gptResult = await testExactConversation('openai/gpt-4.1');
 
-    console.log('\n' + '='.repeat(60));
-    console.log('RESULTS:');
-    console.log('  Claude Opus:', claudeResult ? '✓ Works' : '✗ FAILS');
-    console.log('  GPT-4.1:', gptResult ? '✓ Works' : '✗ FAILS');
-    console.log('='.repeat(60));
+    // console.log('\n' + '='.repeat(60));
+    // console.log('RESULTS:');
+    // console.log('  Claude Opus:', claudeResult ? '✓ Works' : '✗ FAILS');
+    // console.log('  GPT-4.1:', gptResult ? '✓ Works' : '✗ FAILS');
+    // console.log('='.repeat(60));
 }
 
 main().catch(console.error);

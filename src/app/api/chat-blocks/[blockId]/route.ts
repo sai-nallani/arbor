@@ -77,10 +77,10 @@ export async function PATCH(
 
         const { blockId } = await params;
         const body = await request.json();
-        const { title, positionX, positionY, model, isExpanded, hasImage } = body;
+        const { title, positionX, positionY, width, height, model, isExpanded, hasImage } = body;
 
         // Fetch the block first
-        console.log(`[PATCH /api/chat-blocks/${blockId}] Fetching block...`);
+        // console.log(`[PATCH /api/chat-blocks/${blockId}] Fetching block...`);
         const block = await db
             .select()
             .from(chatBlocks)
@@ -92,7 +92,7 @@ export async function PATCH(
         }
 
         // Verify user owns the board
-        console.log(`[PATCH /api/chat-blocks/${blockId}] Verifying ownership for board ${block[0].boardId} by user ${userId}`);
+        // console.log(`[PATCH /api/chat-blocks/${blockId}] Verifying ownership for board ${block[0].boardId} by user ${userId}`);
         const board = await db
             .select()
             .from(boards)
@@ -111,11 +111,13 @@ export async function PATCH(
         if (title !== undefined) updates.title = title;
         if (positionX !== undefined) updates.positionX = positionX;
         if (positionY !== undefined) updates.positionY = positionY;
+        if (width !== undefined) updates.width = width;
+        if (height !== undefined) updates.height = height;
         if (model !== undefined) updates.model = model;
         if (isExpanded !== undefined) updates.isExpanded = isExpanded;
         if (hasImage !== undefined) updates.hasImage = hasImage;
 
-        console.log(`[PATCH /api/chat-blocks/${blockId}] Applying updates:`, updates);
+        // console.log(`[PATCH /api/chat-blocks/${blockId}] Applying updates:`, updates);
 
         // Update the block
         const [updatedBlock] = await db
@@ -124,7 +126,7 @@ export async function PATCH(
             .where(eq(chatBlocks.id, blockId))
             .returning();
 
-        console.log(`[PATCH /api/chat-blocks/${blockId}] Update successful`);
+        // console.log(`[PATCH /api/chat-blocks/${blockId}] Update successful`);
 
         return NextResponse.json(updatedBlock);
     } catch (error) {

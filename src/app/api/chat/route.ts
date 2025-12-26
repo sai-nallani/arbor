@@ -22,11 +22,11 @@ const SYSTEM_PROMPT = `You are a helpful AI assistant. You must use LaTeX format
 
 export async function POST(req: NextRequest) {
     const requestId = Math.random().toString(36).substring(7);
-    console.log(`\n========== [CHAT ${requestId}] NEW REQUEST ==========`);
+    // console.log(`\n========== [CHAT ${requestId}] NEW REQUEST ==========`);
 
     try {
         const { userId } = await auth();
-        console.log(`[CHAT ${requestId}] User: ${userId || 'UNAUTHORIZED'}`);
+        // console.log(`[CHAT ${requestId}] User: ${userId || 'UNAUTHORIZED'}`);
 
         if (!userId) {
             return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -38,14 +38,14 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
         const { messages: chatMessages, model, chatBlockId, isSearchEnabled, branchContext, imageUrls } = body;
 
-        console.log(`[CHAT ${requestId}] Block: ${chatBlockId}`);
-        console.log(`[CHAT ${requestId}] Model requested: ${model}`);
-        console.log(`[CHAT ${requestId}] Search enabled: ${isSearchEnabled}`);
-        console.log(`[CHAT ${requestId}] Has branchContext: ${!!branchContext}`);
-        console.log(`[CHAT ${requestId}] Incoming messages count: ${chatMessages?.length || 0}`);
+        // console.log(`[CHAT ${requestId}] Block: ${chatBlockId}`);
+        // console.log(`[CHAT ${requestId}] Model requested: ${model}`);
+        // console.log(`[CHAT ${requestId}] Search enabled: ${isSearchEnabled}`);
+        // console.log(`[CHAT ${requestId}] Has branchContext: ${!!branchContext}`);
+        // console.log(`[CHAT ${requestId}] Incoming messages count: ${chatMessages?.length || 0}`);
 
         if (!chatMessages || !Array.isArray(chatMessages)) {
-            console.log(`[CHAT ${requestId}] ERROR: Messages required`);
+            // console.log(`[CHAT ${requestId}] ERROR: Messages required`);
             return new Response(JSON.stringify({ error: 'Messages required' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
@@ -53,14 +53,14 @@ export async function POST(req: NextRequest) {
         }
 
         // Log incoming messages summary
-        console.log(`[CHAT ${requestId}] --- Incoming Messages ---`);
+        // console.log(`[CHAT ${requestId}] --- Incoming Messages ---`);
         chatMessages.forEach((msg: any, i: number) => {
             if (typeof msg.content === 'string') {
                 const preview = msg.content.substring(0, 100);
-                console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: ${preview}${msg.content.length > 100 ? '...' : ''}`);
+                // console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: ${preview}${msg.content.length > 100 ? '...' : ''}`);
             } else {
                 // Print full array content for multipart messages
-                console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: [MULTIPART] ${JSON.stringify(msg.content)}`);
+                // console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: [MULTIPART] ${JSON.stringify(msg.content)}`);
             }
         });
 
@@ -69,25 +69,25 @@ export async function POST(req: NextRequest) {
 
         // Build messages for AI, including context if branched
         // First, clean up the messages - remove empty content and obvious duplicates
-        console.log(`[CHAT ${requestId}] --- Cleaning Messages ---`);
+        // console.log(`[CHAT ${requestId}] --- Cleaning Messages ---`);
         const cleanMessages = chatMessages.filter((msg: any, index: number, arr: any[]) => {
             // Remove messages with empty content
             const isEmpty = !msg.content || (typeof msg.content === 'string' && !msg.content.trim());
             if (isEmpty) {
-                console.log(`[CHAT ${requestId}]   REMOVING [${index}] ${msg.role}: empty content (type: ${typeof msg.content}, value: ${JSON.stringify(msg.content)?.substring(0, 50)})`);
+                // console.log(`[CHAT ${requestId}]   REMOVING [${index}] ${msg.role}: empty content (type: ${typeof msg.content}, value: ${JSON.stringify(msg.content)?.substring(0, 50)})`);
                 return false;
             }
             // Remove consecutive duplicates (same role and content)
             if (index > 0) {
                 const prev = arr[index - 1];
                 if (prev.role === msg.role && prev.content === msg.content) {
-                    console.log(`[CHAT ${requestId}]   REMOVING [${index}] ${msg.role}: duplicate of previous`);
+                    // console.log(`[CHAT ${requestId}]   REMOVING [${index}] ${msg.role}: duplicate of previous`);
                     return false;
                 }
             }
             return true;
         });
-        console.log(`[CHAT ${requestId}] After cleaning: ${cleanMessages.length} of ${chatMessages.length} messages kept`);
+        // console.log(`[CHAT ${requestId}] After cleaning: ${cleanMessages.length} of ${chatMessages.length} messages kept`);
 
         // Fix consecutive user messages by inserting placeholder assistant responses
         // This can happen when previous AI responses were empty/null
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
             const msg = cleanMessages[i];
             if (i > 0 && msg.role === 'user' && repairedMessages[repairedMessages.length - 1]?.role === 'user') {
                 // Insert placeholder assistant message
-                console.log(`[CHAT ${requestId}]   INSERTING placeholder assistant between [${i - 1}] and [${i}] to fix consecutive users`);
+                // console.log(`[CHAT ${requestId}]   INSERTING placeholder assistant between [${i - 1}] and [${i}] to fix consecutive users`);
                 repairedMessages.push({
                     role: 'assistant',
                     content: 'I apologize, but I was unable to respond to that. Could you please try again or rephrase your question?'
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (repairedMessages.length !== cleanMessages.length) {
-            console.log(`[CHAT ${requestId}] After repair: ${repairedMessages.length} messages (added ${repairedMessages.length - cleanMessages.length} placeholders)`);
+            // console.log(`[CHAT ${requestId}] After repair: ${repairedMessages.length} messages (added ${repairedMessages.length - cleanMessages.length} placeholders)`);
         }
 
         // process current messages to inject hidden context
@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
         });
 
         // Fetch context from linked source blocks (context links feature)
-        console.log(`[CHAT ${requestId}] --- Fetching Context Links ---`);
+        // console.log(`[CHAT ${requestId}] --- Fetching Context Links ---`);
         let contextFromLinks: any[] = [];
         if (chatBlockId) {
             // Get all source blocks that provide context to this block (transitively)
@@ -153,9 +153,9 @@ export async function POST(req: NextRequest) {
             };
 
             const sourceBlockIds = await getSourceBlockIds(chatBlockId);
-            console.log(`[CHAT ${requestId}] Source blocks found: ${sourceBlockIds.length}`);
+            // console.log(`[CHAT ${requestId}] Source blocks found: ${sourceBlockIds.length}`);
             if (sourceBlockIds.length > 0) {
-                console.log(`[CHAT ${requestId}] Source IDs: ${sourceBlockIds.map(id => id.substring(0, 8)).join(', ')}`);
+                // console.log(`[CHAT ${requestId}] Source IDs: ${sourceBlockIds.map(id => id.substring(0, 8)).join(', ')}`);
                 // Fetch messages from all source blocks, ordered by creation time
                 const contextMessages = await db
                     .select({
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
                     .innerJoin(fileNodes, eq(imageContextLinks.imageNodeId, fileNodes.id))
                     .where(eq(imageContextLinks.targetBlockId, chatBlockId));
 
-                console.log(`[CHAT ${requestId}] Linked images found: ${linkedImages.length}`);
+                // console.log(`[CHAT ${requestId}] Linked images found: ${linkedImages.length}`);
 
                 if (linkedImages.length > 0) {
                     // creating a user message with all images
@@ -205,7 +205,7 @@ export async function POST(req: NextRequest) {
                         content: [textPart, ...imageContentParts]
                     });
 
-                    console.log(`[CHAT ${requestId}] Added ${linkedImages.length} images to context`);
+                    // console.log(`[CHAT ${requestId}] Added ${linkedImages.length} images to context`);
                 }
             } catch (error) {
                 console.error(`[CHAT ${requestId}] Error fetching linked images:`, error);
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
                     .innerJoin(stickyNotes, eq(stickyContextLinks.stickyNoteId, stickyNotes.id))
                     .where(eq(stickyContextLinks.targetBlockId, chatBlockId));
 
-                console.log(`[CHAT ${requestId}] Linked sticky notes found: ${linkedStickyNotes.length}`);
+                // console.log(`[CHAT ${requestId}] Linked sticky notes found: ${linkedStickyNotes.length}`);
 
                 if (linkedStickyNotes.length > 0) {
                     // Combine all sticky note contents
@@ -239,7 +239,7 @@ export async function POST(req: NextRequest) {
                             content: `Here are some notes provided as context for this conversation:\n\n${stickyContent}`
                         });
 
-                        console.log(`[CHAT ${requestId}] Added ${linkedStickyNotes.length} sticky note(s) to context`);
+                        // console.log(`[CHAT ${requestId}] Added ${linkedStickyNotes.length} sticky note(s) to context`);
                     }
                 }
             } catch (error) {
@@ -247,7 +247,7 @@ export async function POST(req: NextRequest) {
                 // Continue without sticky notes if query fails
             }
         } else {
-            console.log(`[CHAT ${requestId}] No chatBlockId, skipping context links`);
+            // console.log(`[CHAT ${requestId}] No chatBlockId, skipping context links`);
         }
 
         // Initialize with system prompt + context from links + current messages
@@ -376,11 +376,11 @@ export async function POST(req: NextRequest) {
 
         // Create streaming response using Dedalus
         let targetModel = model || 'anthropic/claude-opus-4-5';
-        console.log(`[CHAT ${requestId}] Initial model: ${targetModel}`);
+        // console.log(`[CHAT ${requestId}] Initial model: ${targetModel}`);
 
         // Check if ANY message has images to enforce vision model
         const hasImages = aiMessages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'));
-        console.log(`[CHAT ${requestId}] Has images: ${hasImages}`);
+        // console.log(`[CHAT ${requestId}] Has images: ${hasImages}`);
 
         if (hasImages) {
             // Dedalus currently ONLY supports OpenAI for vision inputs
@@ -389,28 +389,28 @@ export async function POST(req: NextRequest) {
             const isOpenAIVision = targetModel.startsWith('openai/') && !['openai/gpt-3.5-turbo', 'openai/o1-preview', 'openai/o1-mini'].includes(targetModel);
 
             if (!isOpenAIVision) {
-                console.log(`[CHAT ${requestId}] Auto-switching to openai/gpt-4o for vision support (original: ${targetModel} not supported for images)`);
+                // console.log(`[CHAT ${requestId}] Auto-switching to openai/gpt-4o for vision support (original: ${targetModel} not supported for images)`);
                 targetModel = 'openai/gpt-4o';
             }
         }
 
         // Log final message array summary
-        console.log(`[CHAT ${requestId}] --- FINAL AI MESSAGES (${aiMessages.length} total) ---`);
+        // console.log(`[CHAT ${requestId}] --- FINAL AI MESSAGES (${aiMessages.length} total) ---`);
         aiMessages.forEach((msg: any, i: number) => {
             const content = typeof msg.content === 'string'
                 ? msg.content.substring(0, 100)
                 : Array.isArray(msg.content)
                     ? `[multipart: ${msg.content.length} parts]`
                     : '[unknown]';
-            console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: ${content}${content.length >= 100 ? '...' : ''}`);
+            // console.log(`[CHAT ${requestId}]   [${i}] ${msg.role}: ${content}${content.length >= 100 ? '...' : ''}`);
         });
 
         // FULL JSON DUMP FOR DEBUGGING
-        console.log(`[CHAT ${requestId}] === FULL MESSAGES JSON ===`);
-        console.log(JSON.stringify(aiMessages, null, 2));
-        console.log(`[CHAT ${requestId}] === END FULL JSON ===`);
+        // console.log(`[CHAT ${requestId}] === FULL MESSAGES JSON ===`);
+        // console.log(JSON.stringify(aiMessages, null, 2));
+        // console.log(`[CHAT ${requestId}] === END FULL JSON ===`);
 
-        console.log(`[CHAT ${requestId}] Calling Dedalus with model: ${targetModel}`);
+        // console.log(`[CHAT ${requestId}] Calling Dedalus with model: ${targetModel}`);
 
         // Helper function to run with a model and stream response
         const runWithModel = async (model: string) => {
@@ -424,7 +424,7 @@ export async function POST(req: NextRequest) {
         };
 
         let stream = await runWithModel(targetModel);
-        console.log(`[CHAT ${requestId}] Stream created successfully`);
+        // console.log(`[CHAT ${requestId}] Stream created successfully`);
 
         // Wrap stream to monitor for errors and handle empty responses
         const wrappedStream = async function* () {
@@ -440,7 +440,7 @@ export async function POST(req: NextRequest) {
 
                     // Log first few chunks for debugging
                     if (chunkCount <= 3) {
-                        console.log(`[CHAT ${requestId}] Chunk ${chunkCount}:`, JSON.stringify(chunk).substring(0, 300));
+                        // console.log(`[CHAT ${requestId}] Chunk ${chunkCount}:`, JSON.stringify(chunk).substring(0, 300));
                     }
 
                     const content = chunk.choices?.[0]?.delta?.content || '';
@@ -459,7 +459,7 @@ export async function POST(req: NextRequest) {
                         for await (const retryChunk of currentStream) {
                             chunkCount++;
                             if (chunkCount <= 5) {
-                                console.log(`[CHAT ${requestId}] Retry Chunk ${chunkCount - 1}:`, JSON.stringify(retryChunk).substring(0, 300));
+                                // console.log(`[CHAT ${requestId}] Retry Chunk ${chunkCount - 1}:`, JSON.stringify(retryChunk).substring(0, 300));
                             }
                             const retryContent = retryChunk.choices?.[0]?.delta?.content || '';
                             if (retryContent) fullContent += retryContent;
@@ -475,7 +475,7 @@ export async function POST(req: NextRequest) {
                 console.error(`[CHAT ${requestId}] Stream error:`, streamError);
                 throw streamError;
             } finally {
-                console.log(`[CHAT ${requestId}] Stream finished. Model: ${usedModel}, Chunks: ${chunkCount}, Content length: ${fullContent.length}`);
+                // console.log(`[CHAT ${requestId}] Stream finished. Model: ${usedModel}, Chunks: ${chunkCount}, Content length: ${fullContent.length}`);
                 const trimmed = fullContent.trim();
                 if (!trimmed || trimmed === '...' || trimmed === '') {
                     console.error(`[CHAT ${requestId}] ⚠️ INVALID RESPONSE - empty or ellipsis`);

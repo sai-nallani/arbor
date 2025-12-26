@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: 'URL required' }, { status: 400 });
             }
 
-            console.log('[POST /api/images] Creating DB entry for pre-uploaded image:', url);
+            // console.log('[POST /api/images] Creating DB entry for pre-uploaded image:', url);
 
             // Create fileNode entry in database
             const insertValues = {
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
                 positionX: parseFloat(positionX) || 0,
                 positionY: parseFloat(positionY) || 0,
             };
-            console.log('[POST /api/images] Inserting values:', JSON.stringify(insertValues));
+            // console.log('[POST /api/images] Inserting values:', JSON.stringify(insertValues));
 
             const returningResult = await db.insert(fileNodes).values(insertValues).returning();
 
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
             }
 
             const fileNode = returningResult[0];
-            console.log('[POST /api/images] File node created with ID:', fileNode.id);
+            // console.log('[POST /api/images] File node created with ID:', fileNode.id);
 
             return NextResponse.json({
                 id: fileNode.id,
@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
             .from('images')
             .getPublicUrl(uploadData.path);
 
-        console.log('[POST /api/images] Uploaded to storage, creating DB entry...');
+        // console.log('[POST /api/images] Uploaded to storage, creating DB entry...');
 
         // Create fileNode entry in database
         const insertValues = {
@@ -132,10 +132,10 @@ export async function POST(request: NextRequest) {
             positionX,
             positionY,
         };
-        console.log('[POST /api/images] Inserting values:', JSON.stringify(insertValues));
+        // console.log('[POST /api/images] Inserting values:', JSON.stringify(insertValues));
 
         const returningResult = await db.insert(fileNodes).values(insertValues).returning();
-        console.log('[POST /api/images] Raw returning result:', JSON.stringify(returningResult));
+        // console.log('[POST /api/images] Raw returning result:', JSON.stringify(returningResult));
 
         if (!returningResult || returningResult.length === 0) {
             console.error('[POST /api/images] Database insert failed or returned no data');
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
         }
 
         const fileNode = returningResult[0];
-        console.log('[POST /api/images] File node created with ID:', fileNode.id);
+        // console.log('[POST /api/images] File node created with ID:', fileNode.id);
 
         const responsePayload = {
             id: fileNode.id,
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
             positionY: fileNode.positionY,
         };
 
-        console.log('[POST /api/images] Returning payload:', JSON.stringify(responsePayload));
+        // console.log('[POST /api/images] Returning payload:', JSON.stringify(responsePayload));
         return NextResponse.json(responsePayload);
 
     } catch (error: any) {

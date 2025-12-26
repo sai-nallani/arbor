@@ -220,14 +220,14 @@ export default function EmbeddedChat({
 
     // Initialize message ID map with initial messages
     useEffect(() => {
-        // console.log('[MessageIdMap] Initializing with initialMessages:', initialMessages.map((m, i) => ({ i, id: (m as any).id })));
+        // // console.log('[MessageIdMap] Initializing with initialMessages:', initialMessages.map((m, i) => ({ i, id: (m as any).id })));
         initialMessages.forEach((m, i) => {
             const id = (m as any).id;
             if (id) {
                 messageIdMapRef.current.set(i, id);
             }
         });
-        // console.log('[MessageIdMap] After init:', Array.from(messageIdMapRef.current.entries()));
+        // // console.log('[MessageIdMap] After init:', Array.from(messageIdMapRef.current.entries()));
     }, [initialMessages]); // Run when initialMessages changes (e.g. on maximize/refresh)
 
     const handleSend = async (content: string, images?: string[]) => {
@@ -277,7 +277,7 @@ export default function EmbeddedChat({
         }
 
         // Now send to AI (the API route won't re-save since we already saved)
-        console.log('[EmbeddedChat] Sending to AI:', { messageContent, effectiveModel, isSearchEnabled });
+        // console.log('[EmbeddedChat] Sending to AI:', { messageContent, effectiveModel, isSearchEnabled });
         try {
             await sendMessage(messageContent);
         } catch (e) {

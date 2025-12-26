@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
             .from('images')
             .getPublicUrl(uploadData.path);
 
-        console.log('[POST /api/images/upload] Uploaded to storage (no DB record yet):', urlData.publicUrl);
+        // console.log('[POST /api/images/upload] Uploaded to storage (no DB record yet):', urlData.publicUrl);
 
         // Return URL and metadata for later database creation
         return NextResponse.json({
