@@ -318,41 +318,11 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     </>
                 )}
 
-                {/* Input handle for incoming connections (Start of chat) */}
-                <Handle
-                    type="target"
-                    position={Position.Top}
-                    className="chat-block-handle"
-                    id="top"
-                    style={{ left: '50%', transform: 'translateX(-50%)' }}
-                />
-
-                {/* Output handle for branching (End of chat) */}
-                <Handle
-                    type="source"
-                    position={Position.Bottom}
-                    className="chat-block-handle"
-                    id="bottom"
-                    style={{ left: '50%', transform: 'translateX(-50%)' }}
-                />
-
-                {/* Context link handles - right side for outgoing context */}
-                <Handle
-                    type="source"
-                    position={Position.Right}
-                    className="chat-block-handle context-handle"
-                    id="context-out"
-                    style={{ top: '50%', transform: 'translateY(-50%)' }}
-                />
-
-                {/* Context link handles - left side for incoming context */}
-                <Handle
-                    type="target"
-                    position={Position.Left}
-                    className="chat-block-handle context-handle"
-                    id="context-in"
-                    style={{ top: '50%', transform: 'translateY(-50%)' }}
-                />
+                {/* Source-only handles - connectionMode="loose" allows any handle to connect to any handle */}
+                <Handle type="source" position={Position.Top} id="top" style={{ width: 16, height: 16, background: '#A67B5B' }} />
+                <Handle type="source" position={Position.Right} id="right" style={{ top: '50%', width: 16, height: 16, background: '#A67B5B' }} />
+                <Handle type="source" position={Position.Bottom} id="bottom" style={{ width: 16, height: 16, background: '#A67B5B' }} />
+                <Handle type="source" position={Position.Left} id="left" style={{ top: '50%', width: 16, height: 16, background: '#A67B5B' }} />
             </div>
 
             {/* Resizer only active when expanded and selected - moved to end for z-index */}

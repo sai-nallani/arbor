@@ -83,6 +83,8 @@ export const contextLinks = pgTable('context_links', {
     id: uuid('id').defaultRandom().primaryKey(),
     sourceBlockId: uuid('source_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
     targetBlockId: uuid('target_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
+    sourceHandle: text('source_handle').default('right'), // The handle on the source block (e.g., 'right', 'bottom', 'left', 'top')
+    targetHandle: text('target_handle').default('left'),   // The handle on the target block
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
     // Prevent duplicate links between same source and target

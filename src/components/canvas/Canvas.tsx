@@ -14,6 +14,7 @@ import {
     type OnConnect,
     BackgroundVariant,
     MarkerType,
+    ConnectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -22,6 +23,7 @@ import ImageNode from './ImageNode';
 import ChatModal from '../chat/ChatModal';
 import OrbitEdge from './OrbitEdge';
 import ContextEdge from './ContextEdge';
+import DeletableEdge from './DeletableEdge';
 import StickyNoteNode from './StickyNoteNode';
 import { useConnectionStyle } from '@/hooks/useConnectionStyle';
 
@@ -35,6 +37,7 @@ const nodeTypes = {
 const edgeTypes = {
     orbit: OrbitEdge,
     context: ContextEdge,
+    deletable: DeletableEdge,
 };
 
 interface ChatBlockWithMessages {
@@ -83,6 +86,8 @@ interface ContextLinkData {
     id: string;
     sourceBlockId: string;
     targetBlockId: string;
+    sourceHandle?: string;
+    targetHandle?: string;
 }
 
 interface SelectedBlockData {
@@ -234,12 +239,12 @@ export default function Canvas({
                     target: link.targetBlockId,
                     sourceHandle: 'bottom',
                     targetHandle: 'top',
-                    type: 'smoothstep',
+                    type: 'deletable',
                     animated: false,
-                    style: { stroke: 'var(--muted)', strokeWidth: 2 },
+                    style: { stroke: '#A67B5B', strokeWidth: 2 },
                     markerEnd: {
                         type: MarkerType.ArrowClosed,
-                        color: 'var(--muted)',
+                        color: '#A67B5B',
                     },
                 });
             }
@@ -251,9 +256,15 @@ export default function Canvas({
                 id: `orbit-${link.fileNodeId}-${link.chatBlockId}`,
                 source: link.fileNodeId,
                 target: link.chatBlockId,
-                type: 'orbit',
-                animated: true,
-                style: { stroke: 'var(--accent)', strokeWidth: 2, opacity: 0.8 },
+                sourceHandle: 'bottom',
+                targetHandle: 'top',
+                type: 'deletable',
+                animated: false,
+                style: { stroke: '#A67B5B', strokeWidth: 2 },
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: '#A67B5B',
+                },
             });
         });
 
@@ -277,10 +288,11 @@ export default function Canvas({
                 id: edgeId,
                 source: link.sourceBlockId,
                 target: link.targetBlockId,
-                sourceHandle: 'context-out', // Sticky notes use context-out too
-                targetHandle: 'context-in',
-                type: 'context',
+                sourceHandle: link.sourceHandle || 'right',
+                targetHandle: link.targetHandle || 'left',
+                type: 'deletable',
                 animated: false,
+                style: { stroke: '#A67B5B', strokeWidth: 2 },
                 markerEnd: {
                     type: MarkerType.ArrowClosed,
                     color: '#A67B5B',
@@ -358,12 +370,17 @@ export default function Canvas({
     }, [setEdges]);
 
     // Create a context link between two chat blocks
-    const createContextLink = useCallback(async (sourceBlockId: string, targetBlockId: string) => {
+    const createContextLink = useCallback(async (
+        sourceBlockId: string,
+        targetBlockId: string,
+        sourceHandle?: string,
+        targetHandle?: string
+    ) => {
         try {
             const response = await fetch('/api/context-links', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sourceBlockId, targetBlockId }),
+                body: JSON.stringify({ sourceBlockId, targetBlockId, sourceHandle, targetHandle }),
             });
 
             if (!response.ok) {
@@ -585,10 +602,10 @@ export default function Canvas({
         }));
     }, [setNodes, updateStickyNote, deleteStickyNote]);
 
-    // Inject onDelete callbacks into context edges loaded from database
+    // Inject onDelete callbacks into deletable edges loaded from database
     useEffect(() => {
         setEdges((eds) => eds.map(edge => {
-            if (edge.type === 'context' && !edge.data?.onDelete) {
+            if (edge.type === 'deletable' && !edge.data?.onDelete) {
                 return {
                     ...edge,
                     data: {
@@ -676,6 +693,7 @@ export default function Canvas({
     }, [setEdges]);
 
     // Handle new connections (user dragging from one node to another)
+    // With source-only handles and connectionMode="loose", any handle can connect to any handle
     const onConnect: OnConnect = useCallback((connection) => {
         const sourceNode = nodesRef.current.find(n => n.id === connection.source);
         const targetNode = nodesRef.current.find(n => n.id === connection.target);
@@ -685,116 +703,50 @@ export default function Canvas({
         // Prevent self-connections
         if (connection.source === connection.target) return;
 
-        // Check if this is a context link (target is context-in)
-        const isContextLink = connection.targetHandle === 'context-in';
+        const sourceType = sourceNode.type;
+        const targetType = targetNode.type;
 
-        if (isContextLink) {
-            // Context links: chatBlock→chatBlock or imageNode→chatBlock or stickyNote→chatBlock
-            // Source can be ANY handle (context-out, bottom, top, left, right)
-            const isValidContextSource = sourceNode.type === 'chatBlock' || sourceNode.type === 'imageNode' || sourceNode.type === 'stickyNote';
-            const isValidContextTarget = targetNode.type === 'chatBlock';
+        // Generate edge ID
+        const edgeId = `e-${connection.source}-${connection.target}-${Date.now()}`;
 
-            if (!isValidContextSource || !isValidContextTarget) {
-                // console.log('Invalid context link: source must be chatBlock/imageNode/stickyNote, target must be chatBlock');
-                return;
-            }
+        // Create edge with consistent styling
+        const newEdge: Edge = {
+            id: edgeId,
+            source: connection.source!,
+            target: connection.target!,
+            sourceHandle: connection.sourceHandle,
+            targetHandle: connection.targetHandle,
+            type: 'deletable',
+            animated: false,
+            style: { stroke: '#A67B5B', strokeWidth: 2 },
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: '#A67B5B',
+            },
+            data: {
+                onDelete: deleteContextLink,
+            },
+        };
 
-            // Add edge optimistically
-            let edgeId = `context-${connection.source}-${connection.target}`;
-            if (sourceNode.type === 'imageNode') {
-                edgeId = `image-context-${connection.source}-${connection.target}`;
-            } else if (sourceNode.type === 'stickyNote') {
-                edgeId = `sticky-context-${connection.source}-${connection.target}`;
-            }
+        setEdges((eds) => {
+            // Remove any existing edge between these nodes (in either direction)
+            const filtered = eds.filter(e =>
+                !((e.source === connection.source && e.target === connection.target) ||
+                    (e.source === connection.target && e.target === connection.source))
+            );
+            return addEdge(newEdge, filtered);
+        });
 
-            const newEdge: Edge = {
-                id: edgeId,
-                source: connection.source!,
-                target: connection.target!,
-                sourceHandle: connection.sourceHandle,
-                targetHandle: 'context-in',
-                type: 'context',
-                animated: false,
-                markerEnd: {
-                    type: MarkerType.ArrowClosed,
-                    color: '#A67B5B',
-                },
-                data: {
-                    onDelete: deleteContextLink,
-                    isImageContext: sourceNode.type === 'imageNode',
-                    imageUrl: sourceNode.type === 'imageNode' ? (sourceNode.data as any).url : undefined,
-                },
-            };
-
-            setEdges((eds) => {
-                // Explicitly remove any existing context edge between these nodes to prevent duplicate keys
-                // effectively ensuring only one context link per pair (matches DB constraint)
-                const filtered = eds.filter(e =>
-                    !(e.type === 'context' && e.source === connection.source && e.target === connection.target)
-                );
-                return addEdge(newEdge, filtered);
-            });
-
-            // Create in database (reuse context-links API for now)
-            // For image/sticky context, we use specific APIs
-            if (sourceNode.type === 'chatBlock') {
-                createContextLink(connection.source!, connection.target!);
-            } else if (sourceNode.type === 'imageNode') {
-                createImageContextLink(connection.source!, connection.target!);
-            } else if (sourceNode.type === 'stickyNote') {
-                createStickyContextLink(connection.source!, connection.target!);
-            }
-        } else {
-            // Regular connections (e.g. Chat -> Chat)
-            if (sourceNode.type === 'chatBlock' && targetNode.type === 'chatBlock') {
-                // Standard connection logic
-                const newEdge: Edge = {
-                    id: `e-${connection.source}-${connection.target}`,
-                    source: connection.source!,
-                    target: connection.target!,
-                    sourceHandle: connection.sourceHandle,
-                    targetHandle: connection.targetHandle,
-                    type: 'context', // Use context edge type for delete button
-                    animated: false,
-                    style: { stroke: 'var(--muted)', strokeWidth: 2 },
-                    markerEnd: {
-                        type: MarkerType.ArrowClosed,
-                        color: 'var(--muted)', // Fixed marker color
-                    },
-                    data: {
-                        onDelete: deleteContextLink,
-                    },
-                };
-                setEdges((eds) => addEdge(newEdge, eds));
-
-                // Persist as context link so it carries context!
-                createContextLink(connection.source!, connection.target!);
-            } else if (sourceNode.type === 'imageNode' && targetNode.type === 'chatBlock') {
-                // Image -> Chat standard connection (e.g. Bottom -> Top)
-                const newEdge: Edge = {
-                    id: `e-${connection.source}-${connection.target}`,
-                    source: connection.source!,
-                    target: connection.target!,
-                    sourceHandle: connection.sourceHandle,
-                    targetHandle: connection.targetHandle,
-                    type: 'orbit', // Force orbit style
-                    animated: false,
-                    style: { stroke: 'var(--muted)', strokeWidth: 2 },
-                    markerEnd: {
-                        type: MarkerType.ArrowClosed,
-                        color: 'var(--muted)',
-                    },
-                    data: {
-                        onDelete: deleteContextLink, // Use same delete handler
-                    },
-                };
-                setEdges((eds) => addEdge(newEdge, eds));
-
-                // Persist as image context link
-                createImageContextLink(connection.source!, connection.target!);
-            }
+        // Persist to database based on node types
+        if (sourceType === 'chatBlock' && targetType === 'chatBlock') {
+            createContextLink(connection.source!, connection.target!, connection.sourceHandle || undefined, connection.targetHandle || undefined);
+        } else if (sourceType === 'stickyNote' && targetType === 'chatBlock') {
+            createStickyContextLink(connection.source!, connection.target!);
+        } else if (sourceType === 'imageNode' && targetType === 'chatBlock') {
+            createImageContextLink(connection.source!, connection.target!);
         }
-    }, [setEdges, createContextLink, deleteContextLink, createImageContextLink]); // Added createImageContextLink dependency
+        // Other combinations are added visually but not persisted
+    }, [setEdges, createContextLink, deleteContextLink, createImageContextLink, createStickyContextLink]);
 
     // Keyboard shortcut for new chat block (Ctrl+G)
     useEffect(() => {
@@ -1205,17 +1157,17 @@ export default function Canvas({
 
                 // Add edge
                 setEdges((eds) => addEdge({
-                    id: `e-${parentBlockId}-${newBlock.id}`, // Explicit ID for styling
+                    id: `e-${parentBlockId}-${newBlock.id}`,
                     source: parentBlockId,
                     target: newBlock.id,
                     sourceHandle: 'bottom',
                     targetHandle: 'top',
-                    type: 'smoothstep',
+                    type: 'deletable',
                     animated: false,
-                    style: { stroke: 'var(--muted)', strokeWidth: 2 },
+                    style: { stroke: '#A67B5B', strokeWidth: 2 },
                     markerEnd: {
                         type: MarkerType.ArrowClosed,
-                        color: 'var(--muted)',
+                        color: '#A67B5B',
                     },
                     data: { isAnimating: false },
                 }, eds));
@@ -1400,9 +1352,13 @@ export default function Canvas({
             target: chatBlockId,
             sourceHandle: 'bottom',
             targetHandle: 'top',
-            type: 'orbit',
+            type: 'deletable',
             animated: false,
-            style: { stroke: 'var(--muted)', strokeWidth: 2 },
+            style: { stroke: '#A67B5B', strokeWidth: 2 },
+            markerEnd: {
+                type: MarkerType.ArrowClosed,
+                color: '#A67B5B',
+            },
             data: { isAnimating: false },
         }, eds));
     }, [nodes, setNodes, setEdges, deleteBlock]);
@@ -1772,6 +1728,8 @@ export default function Canvas({
                 onConnect={onConnect}
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
+                connectionMode={ConnectionMode.Loose}
+                connectionRadius={60}
                 onInit={(instance) => {
                     setRfInstance(instance);
                     // Restore viewport if exists

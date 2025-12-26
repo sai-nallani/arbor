@@ -60,40 +60,11 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
                 color: textColor,
             }}
         >
-            {/* Input handle (for linking TO the note, maybe?) */}
-            <Handle
-                type="target"
-                position={Position.Top}
-                className="sticky-note-handle"
-                id="top"
-                style={{ opacity: 0 }}
-            />
-
-            {/* Context output handle - for linking to chat blocks */}
-            <Handle
-                type="source"
-                position={Position.Right}
-                className="chat-block-handle context-handle"
-                id="context-out"
-                style={{ top: '50%' }}
-            />
-
-            {/* Context input handle - for receiving connections from chat blocks */}
-            <Handle
-                type="target"
-                position={Position.Left}
-                className="chat-block-handle context-handle"
-                id="context-in"
-                style={{ top: '50%' }}
-            />
-
-            <Handle
-                type="source"
-                position={Position.Bottom}
-                className="sticky-note-handle"
-                id="bottom"
-                style={{ opacity: 0 }}
-            />
+            {/* Source-only handles - connectionMode="loose" allows any handle to connect to any handle */}
+            <Handle type="source" position={Position.Top} id="top" style={{ width: 16, height: 16, background: '#A67B5B' }} />
+            <Handle type="source" position={Position.Right} id="right" style={{ top: '50%', width: 16, height: 16, background: '#A67B5B' }} />
+            <Handle type="source" position={Position.Bottom} id="bottom" style={{ width: 16, height: 16, background: '#A67B5B' }} />
+            <Handle type="source" position={Position.Left} id="left" style={{ top: '50%', width: 16, height: 16, background: '#A67B5B' }} />
 
             {/* Header / Actions */}
             <div className="sticky-note-header drag-handle" style={{ padding: '8px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', opacity: selected ? 1 : 0, transition: 'opacity 0.2s' }}>

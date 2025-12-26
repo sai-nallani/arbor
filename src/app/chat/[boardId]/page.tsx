@@ -107,7 +107,7 @@ export default async function BoardPage({ params }: PageProps) {
 
     // Fetch context links between chat blocks on this board
     const blockIds = blocks.map(b => b.id);
-    let contextLinksData: { id: string; sourceBlockId: string; targetBlockId: string }[] = [];
+    let contextLinksData: { id: string; sourceBlockId: string; targetBlockId: string; sourceHandle?: string; targetHandle?: string }[] = [];
 
     if (blockIds.length > 0) {
         const rawChatLinks = await db
@@ -115,11 +115,17 @@ export default async function BoardPage({ params }: PageProps) {
                 id: contextLinks.id,
                 sourceBlockId: contextLinks.sourceBlockId,
                 targetBlockId: contextLinks.targetBlockId,
+                sourceHandle: contextLinks.sourceHandle,
+                targetHandle: contextLinks.targetHandle,
             })
             .from(contextLinks)
             .where(inArray(contextLinks.sourceBlockId, blockIds));
 
-        contextLinksData = [...rawChatLinks];
+        contextLinksData = rawChatLinks.map(link => ({
+            ...link,
+            sourceHandle: link.sourceHandle || undefined,
+            targetHandle: link.targetHandle || undefined,
+        }));
     }
 
     // Fetch image context links (image -> chat block)
@@ -134,7 +140,14 @@ export default async function BoardPage({ params }: PageProps) {
             .from(imageContextLinks)
             .where(inArray(imageContextLinks.imageNodeId, fileIds));
 
-        contextLinksData = [...contextLinksData, ...rawImageLinks];
+        // Maps to ContextLinkData structure with undefined handles
+        const imageLinksFormatted = rawImageLinks.map(link => ({
+            ...link,
+            sourceHandle: undefined,
+            targetHandle: undefined
+        }));
+
+        contextLinksData = [...contextLinksData, ...imageLinksFormatted];
     }
 
     // Fetch sticky notes
@@ -156,7 +169,14 @@ export default async function BoardPage({ params }: PageProps) {
             .from(stickyContextLinks)
             .where(inArray(stickyContextLinks.stickyNoteId, noteIds));
 
-        contextLinksData = [...contextLinksData, ...rawStickyLinks];
+        // Maps to ContextLinkData structure with undefined handles
+        const stickyLinksFormatted = rawStickyLinks.map(link => ({
+            ...link,
+            sourceHandle: undefined,
+            targetHandle: undefined
+        }));
+
+        contextLinksData = [...contextLinksData, ...stickyLinksFormatted];
     }
 
     return (

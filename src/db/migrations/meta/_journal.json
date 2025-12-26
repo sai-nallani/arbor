@@ -15,6 +15,13 @@
       "when": 1766767686167,
       "tag": "0001_dazzling_cammi",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1766774473764,
+      "tag": "0002_lucky_victor_mancha",
+      "breakpoints": true
     }
   ]
 }

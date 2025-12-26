@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { sourceBlockId, targetBlockId } = body;
+        const { sourceBlockId, targetBlockId, sourceHandle, targetHandle } = body;
 
         if (!sourceBlockId || !targetBlockId) {
             return NextResponse.json(
@@ -137,7 +137,12 @@ export async function POST(req: NextRequest) {
         // Create the link
         const [newLink] = await db
             .insert(contextLinks)
-            .values({ sourceBlockId, targetBlockId })
+            .values({
+                sourceBlockId,
+                targetBlockId,
+                sourceHandle: sourceHandle || 'right',
+                targetHandle: targetHandle || 'left',
+            })
             .returning();
 
         return NextResponse.json(newLink, { status: 201 });
@@ -224,6 +229,8 @@ export async function GET(req: NextRequest) {
                 id: contextLinks.id,
                 sourceBlockId: contextLinks.sourceBlockId,
                 targetBlockId: contextLinks.targetBlockId,
+                sourceHandle: contextLinks.sourceHandle,
+                targetHandle: contextLinks.targetHandle,
                 createdAt: contextLinks.createdAt,
             })
             .from(contextLinks)

@@ -2398,3 +2398,15 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ============================================
+   EDGE DELETE BUTTON
+   ============================================ */
+
+.deletable-edge-button {
+  opacity: 1;
+}
+
+.context-edge-delete {
+  opacity: 1;
+}

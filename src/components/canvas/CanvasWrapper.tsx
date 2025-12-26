@@ -60,6 +60,8 @@ interface ContextLinkData {
     id: string;
     sourceBlockId: string;
     targetBlockId: string;
+    sourceHandle?: string;
+    targetHandle?: string;
 }
 
 interface CanvasWrapperProps {

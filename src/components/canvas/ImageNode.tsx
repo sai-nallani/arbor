@@ -36,30 +36,11 @@ function ImageNode({ id, data, selected }: NodeProps) {
                     minHeight: 200,
                 } : undefined}
             >
-                {/* Input handle */}
-                <Handle
-                    type="target"
-                    position={Position.Top}
-                    className="image-node-handle"
-                    id="top"
-                />
-
-                {/* Output handle */}
-                <Handle
-                    type="source"
-                    position={Position.Bottom}
-                    className="image-node-handle"
-                    id="bottom"
-                />
-
-                {/* Context output handle - for linking to chat blocks */}
-                <Handle
-                    type="source"
-                    position={Position.Right}
-                    className="chat-block-handle context-handle"
-                    id="context-out"
-                    style={{ top: '50%' }}
-                />
+                {/* Source-only handles - connectionMode="loose" allows any handle to connect to any handle */}
+                <Handle type="source" position={Position.Top} id="top" style={{ width: 16, height: 16, background: '#A67B5B' }} />
+                <Handle type="source" position={Position.Right} id="right" style={{ top: '50%', width: 16, height: 16, background: '#A67B5B' }} />
+                <Handle type="source" position={Position.Bottom} id="bottom" style={{ width: 16, height: 16, background: '#A67B5B' }} />
+                <Handle type="source" position={Position.Left} id="left" style={{ top: '50%', width: 16, height: 16, background: '#A67B5B' }} />
 
                 {isExpanded ? (
                     // Expanded view - full image
