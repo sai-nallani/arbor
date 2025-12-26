@@ -410,25 +410,18 @@ export async function POST(req: NextRequest) {
         // console.log(JSON.stringify(aiMessages, null, 2));
         // console.log(`[CHAT ${requestId}] === END FULL JSON ===`);
 
-        // console.log(`[CHAT ${requestId}] Calling Dedalus with model: ${targetModel}`);
+        // Sanitize messages to remove any 'id' fields which cause empty responses in Dedalus
+        const sanitizedAiMessages = aiMessages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+        }));
 
-        // WORKAROUND: Append a trailing space to the last user message to avoid empty response bug
-        // with specific short prompts like "i'm confused". a trailing space works around this issue.
-        if (aiMessages.length > 0) {
-            const lastMsg = aiMessages[aiMessages.length - 1];
-            if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
-                aiMessages[aiMessages.length - 1] = {
-                    ...lastMsg,
-                    content: lastMsg.content + ' '
-                };
-                // console.log(`[CHAT ${requestId}] Applied whitespace workaround to last message`);
-            }
-        }
+        // console.log(`[CHAT ${requestId}] Calling Dedalus with model: ${targetModel}`);
 
         // Helper function to run with a model and stream response
         const runWithModel = async (model: string) => {
             const stream = await runner.run({
-                messages: aiMessages,
+                messages: sanitizedAiMessages,
                 model: [model, "openai/gpt-4.1"],
                 stream: true,
                 mcp_servers: isSearchEnabled ? ['https://mcp.exa.ai/mcp'] : undefined,

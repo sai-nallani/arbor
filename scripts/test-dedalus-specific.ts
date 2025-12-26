@@ -47,11 +47,11 @@ async function main() {
         },
         {
             "role": "user",
-            "content": "explain HOTT in 20 words"
+            "content": "what is hott in 20 words?"
         },
         {
             "role": "assistant",
-            "content": "**Homotopy Type Theory (HoTT):** A foundation for mathematics merging type theory with homotopy theory, where types are spaces and equality is path equivalence."
+            "content": "**Homotopy Type Theory (HoTT)** is a modern mathematical foundation unifying logic, computation, and topology, where types behave like spaces and equality like paths."
         },
         {
             "role": "system",
@@ -59,22 +59,34 @@ async function main() {
         },
         {
             "role": "user",
-            "content": "i'm confused._"
+            "content": "i'm confused"
+        },
+        {
+            "role": "assistant",
+            "content": "No problem! Let me break it down simply:\n\n**HoTT (Homotopy Type Theory)** is a new way of doing math on computers where:\n\n- **Types** = collections of things (like \"numbers\" or \"shapes\")\n- **Equality** = paths connecting things (not just \"same or different\")\n- It connects **logic, programming, and geometry** in one framework\n\nThink of it as: instead of just saying two things \"are equal,\" HoTT asks \"**how** are they equal?\" and treats that \"how\" as a journey or path between them.\n\nDoes that help clarify it?"
+        },
+        {
+            "content": "i think i understand"
         }
     ];
 
     console.log('Sending messages:', JSON.stringify(messages, null, 2));
     console.log('\n--- STREAMING RESPONSE ---\n');
 
+    // Test single case
+    console.log(`\n\n------------------------------------------------------------`);
+    console.log(`TESTING WITHOUT IDs`);
+    console.log(`------------------------------------------------------------`);
+
     try {
-        // If this fails, it's the array syntax
         const stream = await runner.run({
             messages: messages as any,
-            model: ['anthropic/claude-opus-4-5', 'openai/gpt-4.1'], // Test array syntax
-            stream: true
+            model: ['anthropic/claude-sonnet-4-5-20250929', 'openai/gpt-4.1'],
+            stream: true,
         });
 
         let fullContent = '';
+        process.stdout.write('Response: ');
         for await (const chunk of stream as any) {
             const content = chunk.choices?.[0]?.delta?.content || '';
             if (content) {
@@ -83,11 +95,15 @@ async function main() {
             }
         }
 
-        console.log('\n\n' + '='.repeat(60));
-        console.log('RESPONSE COMPLETE');
+        console.log(`\n\nCOMPLETE. Length: ${fullContent.length}`);
+        if (fullContent.length === 0) {
+            console.log(`⚠️  FAILED (Empty Response)`);
+        } else {
+            console.log(`✅  SUCCESS`);
+        }
     } catch (error) {
-        console.error('ERROR:', error);
+        console.error(`ERROR:`, error);
     }
 }
 
-main().catch(console.error);
+main();
