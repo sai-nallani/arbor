@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
-import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks, contextLinks, imageContextLinks } from '@/db/schema';
+import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks, contextLinks, imageContextLinks, stickyNotes, stickyContextLinks } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import CanvasWrapper from '@/components/canvas/CanvasWrapper';
 
@@ -135,6 +135,28 @@ export default async function BoardPage({ params }: PageProps) {
         contextLinksData = [...contextLinksData, ...rawImageLinks];
     }
 
+    // Fetch sticky notes
+    const stickyNotesData = await db
+        .select()
+        .from(stickyNotes)
+        .where(eq(stickyNotes.boardId, boardId));
+
+    // Fetch sticky context links
+    // First we need sticky note IDs
+    const noteIds = stickyNotesData.map(n => n.id);
+    if (noteIds.length > 0) {
+        const rawStickyLinks = await db
+            .select({
+                id: stickyContextLinks.id,
+                sourceBlockId: stickyContextLinks.stickyNoteId, // Alias as sourceBlockId
+                targetBlockId: stickyContextLinks.targetBlockId,
+            })
+            .from(stickyContextLinks)
+            .where(inArray(stickyContextLinks.stickyNoteId, noteIds));
+
+        contextLinksData = [...contextLinksData, ...rawStickyLinks];
+    }
+
     return (
         <CanvasWrapper
             boardId={boardId}
@@ -144,6 +166,7 @@ export default async function BoardPage({ params }: PageProps) {
             initialFiles={files}
             initialFileLinks={linksData.map(l => l.file_links)}
             initialContextLinks={contextLinksData}
+            initialStickyNotes={stickyNotesData}
         />
     );
 }

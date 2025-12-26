@@ -68,6 +68,7 @@ interface CanvasWrapperProps {
     initialFiles?: FileNodeData[];
     initialFileLinks?: FileLinkData[];
     initialContextLinks?: ContextLinkData[];
+    initialStickyNotes?: any[];
 }
 
 export default function CanvasWrapper({
@@ -77,7 +78,8 @@ export default function CanvasWrapper({
     initialLinks,
     initialFiles,
     initialFileLinks,
-    initialContextLinks
+    initialContextLinks,
+    initialStickyNotes
 }: CanvasWrapperProps) {
     return (
         <div className="canvas-container">
@@ -89,6 +91,7 @@ export default function CanvasWrapper({
                 initialFiles={initialFiles}
                 initialFileLinks={initialFileLinks}
                 initialContextLinks={initialContextLinks}
+                initialStickyNotes={initialStickyNotes}
             />
         </div>
     );

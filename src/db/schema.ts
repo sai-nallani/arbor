@@ -99,6 +99,30 @@ export const imageContextLinks = pgTable('image_context_links', {
     uniqueIndex('image_context_links_unique_idx').on(table.imageNodeId, table.targetBlockId),
 ]);
 
+// Sticky Notes - simple text nodes on the canvas
+export const stickyNotes = pgTable('sticky_notes', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    boardId: uuid('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
+    content: text('content').default('').notNull(),
+    color: text('color').default('yellow').notNull(), // 'yellow', 'blue', 'green', 'pink'
+    positionX: doublePrecision('position_x').notNull(),
+    positionY: doublePrecision('position_y').notNull(),
+    width: doublePrecision('width').default(200),
+    height: doublePrecision('height').default(200),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Sticky Note context links - directed edges for text context sharing
+export const stickyContextLinks = pgTable('sticky_context_links', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    stickyNoteId: uuid('sticky_note_id').notNull().references(() => stickyNotes.id, { onDelete: 'cascade' }),
+    targetBlockId: uuid('target_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex('sticky_context_links_unique_idx').on(table.stickyNoteId, table.targetBlockId),
+]);
+
 // ============================================
 // RELATIONS
 // ============================================
@@ -111,6 +135,7 @@ export const boardsRelations = relations(boards, ({ one, many }) => ({
     user: one(users, { fields: [boards.userId], references: [users.id] }),
     chatBlocks: many(chatBlocks),
     fileNodes: many(fileNodes),
+    stickyNotes: many(stickyNotes),
 }));
 
 
@@ -193,6 +218,8 @@ export const chatBlocksRelations = relations(chatBlocks, ({ one, many }) => ({
     // Context links for context sharing between blocks
     contextSources: many(contextLinks, { relationName: 'contextTarget' }), // Blocks providing context TO this block
     contextTargets: many(contextLinks, { relationName: 'contextSource' }), // Blocks receiving context FROM this block
+    // Sticky Notes Links
+    stickyNoteContexts: many(stickyContextLinks),
 }));
 
 export const contextLinksRelations = relations(contextLinks, ({ one }) => ({
@@ -200,8 +227,24 @@ export const contextLinksRelations = relations(contextLinks, ({ one }) => ({
     targetBlock: one(chatBlocks, { fields: [contextLinks.targetBlockId], references: [chatBlocks.id], relationName: 'contextTarget' }),
 }));
 
+export const stickyNotesRelations = relations(stickyNotes, ({ one, many }) => ({
+    board: one(boards, { fields: [stickyNotes.boardId], references: [boards.id] }),
+    contextLinks: many(stickyContextLinks),
+}));
+
+export const stickyContextLinksRelations = relations(stickyContextLinks, ({ one }) => ({
+    stickyNote: one(stickyNotes, { fields: [stickyContextLinks.stickyNoteId], references: [stickyNotes.id] }),
+    targetBlock: one(chatBlocks, { fields: [stickyContextLinks.targetBlockId], references: [chatBlocks.id] }),
+}));
+
 export type MessageLink = typeof messageLinks.$inferSelect;
 export type NewMessageLink = typeof messageLinks.$inferInsert;
 
 export type ContextLink = typeof contextLinks.$inferSelect;
 export type NewContextLink = typeof contextLinks.$inferInsert;
+
+export type StickyNote = typeof stickyNotes.$inferSelect;
+export type NewStickyNote = typeof stickyNotes.$inferInsert;
+
+export type StickyContextLink = typeof stickyContextLinks.$inferSelect;
+export type NewStickyContextLink = typeof stickyContextLinks.$inferInsert;

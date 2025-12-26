@@ -22,11 +22,14 @@ import ImageNode from './ImageNode';
 import ChatModal from '../chat/ChatModal';
 import OrbitEdge from './OrbitEdge';
 import ContextEdge from './ContextEdge';
+import StickyNoteNode from './StickyNoteNode';
+import { useConnectionStyle } from '@/hooks/useConnectionStyle';
 
 // Define custom node types
 const nodeTypes = {
     chatBlock: ChatBlockNode,
     imageNode: ImageNode,
+    stickyNote: StickyNoteNode,
 };
 
 const edgeTypes = {
@@ -94,6 +97,7 @@ interface CanvasProps {
     initialFiles?: FileNodeData[];
     initialFileLinks?: FileLinkData[];
     initialContextLinks?: ContextLinkData[];
+    initialStickyNotes?: any[]; // Simplified for now
 }
 
 export default function Canvas({
@@ -103,7 +107,8 @@ export default function Canvas({
     initialLinks = [],
     initialFiles = [],
     initialFileLinks = [],
-    initialContextLinks = []
+    initialContextLinks = [],
+    initialStickyNotes = []
 }: CanvasProps) {
     // Process initial links into a map
     const initialLinksMap = useMemo(() => {
@@ -181,8 +186,28 @@ export default function Canvas({
             });
         });
 
+        // Add Sticky Notes
+        initialStickyNotes.forEach((note) => {
+            if (ids.has(note.id)) return;
+            ids.add(note.id);
+
+            nodes.push({
+                id: note.id,
+                type: 'stickyNote',
+                position: { x: note.positionX, y: note.positionY },
+                style: { width: note.width || 200, height: note.height || 200 },
+                data: {
+                    id: note.id,
+                    content: note.content,
+                    color: note.color,
+                    // We'll attach handlers later via updateNodeInternals or useEffect if needed, 
+                    // but better to pass them here if defined constantly
+                },
+            });
+        });
+
         return nodes;
-    }, [initialBlocks, initialLinksMap, initialFiles, boardId]);
+    }, [initialBlocks, initialLinksMap, initialFiles, initialStickyNotes, boardId]);
 
     // Calculate initial edges
     const initialEdges: Edge[] = useMemo(() => {
@@ -235,13 +260,21 @@ export default function Canvas({
             const isImageNode = initialFiles.some(f => f.id === link.sourceBlockId);
             const imageUrl = isImageNode ? initialFiles.find(f => f.id === link.sourceBlockId)?.url : undefined;
 
+            // Check if source is a sticky note
+            const isStickyNote = initialStickyNotes.some(n => n.id === link.sourceBlockId);
+
+            let edgeId = `context-${link.sourceBlockId}-${link.targetBlockId}`;
+            if (isImageNode) {
+                edgeId = `image-context-${link.sourceBlockId}-${link.targetBlockId}`;
+            } else if (isStickyNote) {
+                edgeId = `sticky-context-${link.sourceBlockId}-${link.targetBlockId}`;
+            }
+
             edges.push({
-                id: isImageNode
-                    ? `image-context-${link.sourceBlockId}-${link.targetBlockId}`
-                    : `context-${link.sourceBlockId}-${link.targetBlockId}`,
+                id: edgeId,
                 source: link.sourceBlockId,
                 target: link.targetBlockId,
-                sourceHandle: 'context-out',
+                sourceHandle: 'context-out', // Sticky notes use context-out too
                 targetHandle: 'context-in',
                 type: 'context',
                 animated: false,
@@ -256,8 +289,13 @@ export default function Canvas({
             });
         });
 
+        // We also need to handle sticky context links here if they were passed, 
+        // but currently the prop initialContextLinks might only contain chat-chat links if fetched that way.
+        // Assuming the parent component passes all context links normalized or we need a new prop.
+        // For now, ignoring initial sticky links in this specific block until prop is updated or they are included in initialContextLinks.
+
         return edges;
-    }, [initialLinks, initialFileLinks, initialContextLinks, initialBlocks]);
+    }, [initialLinks, initialFileLinks, initialContextLinks, initialBlocks, initialFiles, initialStickyNotes]);
 
 
 
@@ -267,8 +305,12 @@ export default function Canvas({
     const [needsInitialBlock, setNeedsInitialBlock] = useState(initialBlocks.length === 0);
     const [rfInstance, setRfInstance] = useState<any>(null); // React Flow instance
     const [showAddMenu, setShowAddMenu] = useState(false);
-    const [placementMode, setPlacementMode] = useState<'chat' | 'image' | null>(null);
+    const [placementMode, setPlacementMode] = useState<'chat' | 'image' | 'sticky' | null>(null);
     const [errorToast, setErrorToast] = useState<string | null>(null);
+
+
+
+    // State for placement mode (creating new blocks)eRef(false);
     const initializingRef = useRef(false);
 
     // Ref for nodes to avoid dependency cycles in callbacks
@@ -425,6 +467,63 @@ export default function Canvas({
         }
     }, [setEdges, rfInstance, setNodes]);
 
+    // Update Sticky Note content/color
+    const updateStickyNote = useCallback(async (id: string, content: string, color: string) => {
+        // Optimistic update
+        setNodes((nds) => nds.map((node) => {
+            if (node.id === id) {
+                return {
+                    ...node,
+                    data: { ...node.data, content, color }
+                };
+            }
+            return node;
+        }));
+
+        try {
+            await fetch(`/api/sticky-notes/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content, color }),
+            });
+        } catch (error) {
+            console.error('Failed to update sticky note:', error);
+            // Revert or show toast?
+        }
+    }, [setNodes]);
+
+    // Delete Sticky Note
+    const deleteStickyNote = useCallback(async (id: string) => {
+        setNodes((nds) => nds.filter((n) => n.id !== id));
+        try {
+            await fetch(`/api/sticky-notes/${id}`, {
+                method: 'DELETE',
+            });
+        } catch (error) {
+            console.error('Failed to delete sticky note:', error);
+        }
+    }, [setNodes]);
+
+    // Inject callbacks into nodes (especially for sticky notes)
+    useEffect(() => {
+        setNodes((nds) => nds.map((node) => {
+            if (node.type === 'stickyNote') {
+                // Check if callbacks are missing or stale (though memoized shouldn't be stale if deps correct)
+                if (!node.data.onUpdate || !node.data.onDelete) {
+                    return {
+                        ...node,
+                        data: {
+                            ...node.data,
+                            onUpdate: updateStickyNote,
+                            onDelete: deleteStickyNote,
+                        }
+                    };
+                }
+            }
+            return node;
+        }));
+    }, [setNodes, updateStickyNote, deleteStickyNote]);
+
     // Inject onDelete callbacks into context edges loaded from database
     useEffect(() => {
         setEdges((eds) => eds.map(edge => {
@@ -441,72 +540,7 @@ export default function Canvas({
         }));
     }, [deleteContextLink, setEdges]);
 
-    // Handle new connections (user dragging from one node to another)
-    const onConnect: OnConnect = useCallback((connection) => {
-        const sourceNode = nodesRef.current.find(n => n.id === connection.source);
-        const targetNode = nodesRef.current.find(n => n.id === connection.target);
-
-        if (!sourceNode || !targetNode) return;
-
-        // Prevent self-connections
-        if (connection.source === connection.target) return;
-
-        // Check if this is a context link (from context-out handle)
-        const isContextLink = connection.sourceHandle === 'context-out';
-
-        if (isContextLink) {
-            // Context links: chatBlock→chatBlock or imageNode→chatBlock
-            const isValidContextSource = sourceNode.type === 'chatBlock' || sourceNode.type === 'imageNode';
-            const isValidContextTarget = targetNode.type === 'chatBlock';
-
-            if (!isValidContextSource || !isValidContextTarget) {
-                console.log('Invalid context link: source must be chatBlock or imageNode, target must be chatBlock');
-                return;
-            }
-
-            // Add edge optimistically
-            const edgeId = sourceNode.type === 'imageNode'
-                ? `image-context-${connection.source}-${connection.target}`
-                : `context-${connection.source}-${connection.target}`;
-
-            const newEdge: Edge = {
-                id: edgeId,
-                source: connection.source!,
-                target: connection.target!,
-                sourceHandle: 'context-out',
-                targetHandle: 'context-in',
-                type: 'context',
-                animated: false,
-                markerEnd: {
-                    type: MarkerType.ArrowClosed,
-                    color: '#A67B5B',
-                },
-                data: {
-                    onDelete: deleteContextLink,
-                    isImageContext: sourceNode.type === 'imageNode',
-                    imageUrl: sourceNode.type === 'imageNode' ? (sourceNode.data as any).url : undefined,
-                },
-            };
-
-            setEdges((eds) => addEdge(newEdge, eds));
-
-            // Create in database (reuse context-links API for now)
-            // For image context, we still use the same API but the source is an image node
-            if (sourceNode.type === 'chatBlock') {
-                createContextLink(connection.source!, connection.target!);
-            } else if (sourceNode.type === 'imageNode') {
-                // For image context links, we'll store it differently or reuse the same API
-                // For now, store as a context link - the API will need to handle this
-                createImageContextLink(connection.source!, connection.target!);
-            }
-        } else {
-            // Regular file links (only between chatBlocks)
-            if (sourceNode.type !== 'chatBlock' || targetNode.type !== 'chatBlock') return;
-            // ... existing file link logic would go here
-        }
-    }, [setEdges, createContextLink, deleteContextLink]);
-
-    // Create an image context link
+    // Create an image context link - Defined BEFORE onConnect to avoid use-before-declaration
     const createImageContextLink = useCallback(async (imageNodeId: string, chatBlockId: string) => {
         try {
             const response = await fetch('/api/image-context-links', {
@@ -553,15 +587,181 @@ export default function Canvas({
         }
     }, [setEdges, setNodes]);
 
-    // Delete a block
+    // Create a sticky context link
+    const createStickyContextLink = useCallback(async (stickyNoteId: string, chatBlockId: string) => {
+        try {
+            const response = await fetch('/api/sticky-context-links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stickyNoteId, targetBlockId: chatBlockId }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                console.warn('Sticky context link creation blocked:', error.error);
+                setErrorToast(error.error || 'Failed to create sticky context link');
+                setTimeout(() => setErrorToast(null), 4000);
+                setEdges((eds) => eds.filter(e => e.id !== `sticky-context-${stickyNoteId}-${chatBlockId}`));
+                return;
+            }
+
+            console.log('Sticky context link created:', stickyNoteId, '→', chatBlockId);
+        } catch (error) {
+            console.warn('Sticky context link network error:', error);
+            setErrorToast('Network error creating sticky context link');
+            setTimeout(() => setErrorToast(null), 4000);
+            setEdges((eds) => eds.filter(e => e.id !== `sticky-context-${stickyNoteId}-${chatBlockId}`));
+        }
+    }, [setEdges]);
+
+    // Handle new connections (user dragging from one node to another)
+    const onConnect: OnConnect = useCallback((connection) => {
+        const sourceNode = nodesRef.current.find(n => n.id === connection.source);
+        const targetNode = nodesRef.current.find(n => n.id === connection.target);
+
+        if (!sourceNode || !targetNode) return;
+
+        // Prevent self-connections
+        if (connection.source === connection.target) return;
+
+        // Check if this is a context link (target is context-in)
+        const isContextLink = connection.targetHandle === 'context-in';
+
+        if (isContextLink) {
+            // Context links: chatBlock→chatBlock or imageNode→chatBlock or stickyNote→chatBlock
+            // Source can be ANY handle (context-out, bottom, top, left, right)
+            const isValidContextSource = sourceNode.type === 'chatBlock' || sourceNode.type === 'imageNode' || sourceNode.type === 'stickyNote';
+            const isValidContextTarget = targetNode.type === 'chatBlock';
+
+            if (!isValidContextSource || !isValidContextTarget) {
+                console.log('Invalid context link: source must be chatBlock/imageNode/stickyNote, target must be chatBlock');
+                return;
+            }
+
+            // Add edge optimistically
+            let edgeId = `context-${connection.source}-${connection.target}`;
+            if (sourceNode.type === 'imageNode') {
+                edgeId = `image-context-${connection.source}-${connection.target}`;
+            } else if (sourceNode.type === 'stickyNote') {
+                edgeId = `sticky-context-${connection.source}-${connection.target}`;
+            }
+
+            const newEdge: Edge = {
+                id: edgeId,
+                source: connection.source!,
+                target: connection.target!,
+                sourceHandle: connection.sourceHandle,
+                targetHandle: 'context-in',
+                type: 'context',
+                animated: false,
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: '#A67B5B',
+                },
+                data: {
+                    onDelete: deleteContextLink,
+                    isImageContext: sourceNode.type === 'imageNode',
+                    imageUrl: sourceNode.type === 'imageNode' ? (sourceNode.data as any).url : undefined,
+                },
+            };
+
+            setEdges((eds) => {
+                // Explicitly remove any existing context edge between these nodes to prevent duplicate keys
+                // effectively ensuring only one context link per pair (matches DB constraint)
+                const filtered = eds.filter(e =>
+                    !(e.type === 'context' && e.source === connection.source && e.target === connection.target)
+                );
+                return addEdge(newEdge, filtered);
+            });
+
+            // Create in database (reuse context-links API for now)
+            // For image/sticky context, we use specific APIs
+            if (sourceNode.type === 'chatBlock') {
+                createContextLink(connection.source!, connection.target!);
+            } else if (sourceNode.type === 'imageNode') {
+                createImageContextLink(connection.source!, connection.target!);
+            } else if (sourceNode.type === 'stickyNote') {
+                createStickyContextLink(connection.source!, connection.target!);
+            }
+        } else {
+            // Regular connections (e.g. Chat -> Chat)
+            if (sourceNode.type === 'chatBlock' && targetNode.type === 'chatBlock') {
+                // Standard connection logic
+                const newEdge: Edge = {
+                    id: `e-${connection.source}-${connection.target}`,
+                    source: connection.source!,
+                    target: connection.target!,
+                    sourceHandle: connection.sourceHandle,
+                    targetHandle: connection.targetHandle,
+                    type: 'smoothstep',
+                    animated: false,
+                    style: { stroke: 'var(--muted)', strokeWidth: 2 },
+                    markerEnd: {
+                        type: MarkerType.ArrowClosed,
+                        color: 'var(--muted)', // Fixed marker color
+                    },
+                    data: {
+                        onDelete: deleteContextLink,
+                    },
+                };
+                setEdges((eds) => addEdge(newEdge, eds));
+
+                // Persist as context link so it carries context!
+                createContextLink(connection.source!, connection.target!);
+            } else if (sourceNode.type === 'imageNode' && targetNode.type === 'chatBlock') {
+                // Image -> Chat standard connection (e.g. Bottom -> Top)
+                const newEdge: Edge = {
+                    id: `e-${connection.source}-${connection.target}`,
+                    source: connection.source!,
+                    target: connection.target!,
+                    sourceHandle: connection.sourceHandle,
+                    targetHandle: connection.targetHandle,
+                    type: 'orbit', // Force orbit style
+                    animated: false,
+                    style: { stroke: 'var(--muted)', strokeWidth: 2 },
+                    markerEnd: {
+                        type: MarkerType.ArrowClosed,
+                        color: 'var(--muted)',
+                    },
+                    data: {
+                        onDelete: deleteContextLink, // Use same delete handler
+                    },
+                };
+                setEdges((eds) => addEdge(newEdge, eds));
+
+                // Persist as image context link
+                createImageContextLink(connection.source!, connection.target!);
+            }
+        }
+    }, [setEdges, createContextLink, deleteContextLink, createImageContextLink]); // Added createImageContextLink dependency
+
+    // Keyboard shortcut for new chat block (Ctrl+G)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ctrl+G or Cmd+G
+            if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+                e.preventDefault();
+                setPlacementMode('chat');
+                // You might also want to show a toast or indicator
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+
+
+    // Delete a block or node
     const deleteBlock = useCallback(async (blockId: string) => {
         console.log('Attempting to delete block:', blockId);
 
+        // Determine node type before removing from state
+        const nodeToDelete = nodesRef.current.find(n => n.id === blockId);
+        const nodeType = nodeToDelete?.type;
 
+        console.log('Proceeding with delete for block:', blockId, 'Type:', nodeType);
 
-        console.log('Proceeding with delete for block:', blockId);
-
-        // Optimistic update
         // Optimistic update
         setNodes((nds) => {
             // 1. Remove the deleted node
@@ -600,8 +800,24 @@ export default function Canvas({
         setEdges((eds) => eds.filter((edge) => edge.source !== blockId && edge.target !== blockId));
 
         try {
-            await fetch(`/api/chat-blocks/${blockId}`, { method: 'DELETE' });
-            console.log('Block deleted from server:', blockId);
+            let endpoint = '';
+            if (nodeType === 'chatBlock') {
+                endpoint = `/api/chat-blocks/${blockId}`;
+            } else if (nodeType === 'imageNode') {
+                endpoint = `/api/file-nodes/${blockId}`;
+            } else if (nodeType === 'stickyNote') {
+                endpoint = `/api/sticky-notes/${blockId}`;
+            } else {
+                console.warn('Unknown node type for deletion:', nodeType);
+                return;
+            }
+
+            const response = await fetch(endpoint, { method: 'DELETE' });
+            if (!response.ok) {
+                console.error('Failed to delete node, status:', response.status);
+            } else {
+                console.log('Node deleted from server:', blockId);
+            }
         } catch (error) {
             console.error('Failed to delete block:', error);
         }
@@ -734,6 +950,10 @@ export default function Canvas({
         quoteText: string,
         contextMessages: any[]
     ) => {
+        if (!sourceMessageId) {
+            console.error('[Canvas] Cannot branch: sourceMessageId is missing');
+            return;
+        }
 
 
         // Find parent position
@@ -882,16 +1102,18 @@ export default function Canvas({
                 setNodes((nds) => {
                     const updatedNodes = nds.map(node => {
                         if (node.id === parentBlockId) {
-                            const currentLinks = (node.data.links as Record<string, MessageLink[]>) || {};
-                            const msgLinks = currentLinks[sourceMessageId] || [];
+                            // IMMUTABLE UPDATE: Create copies of everything
+                            const currentLinks = { ...((node.data.links as Record<string, MessageLink[]>) || {}) };
+                            const msgLinks = [...(currentLinks[sourceMessageId] || [])];
+
+                            // Update the specific message's links
+                            currentLinks[sourceMessageId] = [...msgLinks, newLink];
+
                             return {
                                 ...node,
                                 data: {
                                     ...node.data,
-                                    links: {
-                                        ...currentLinks,
-                                        [sourceMessageId]: [...msgLinks, newLink]
-                                    }
+                                    links: currentLinks
                                 }
                             };
                         }
@@ -1192,9 +1414,19 @@ export default function Canvas({
                 const node = nodesRef.current.find(n => n.id === change.id);
                 if (!node) return;
 
-                const endpoint = node.type === 'chatBlock'
-                    ? `/api/chat-blocks/${change.id}`
-                    : `/api/file-nodes/${change.id}`;
+                // Ignore temporary nodes (optimistic updates not yet saved to DB)
+                if (change.id.startsWith('temp-')) return;
+
+                let endpoint = '';
+                if (node.type === 'chatBlock') {
+                    endpoint = `/api/chat-blocks/${change.id}`;
+                } else if (node.type === 'imageNode') {
+                    endpoint = `/api/file-nodes/${change.id}`;
+                } else if (node.type === 'stickyNote') {
+                    endpoint = `/api/sticky-notes/${change.id}`;
+                } else {
+                    return;
+                }
 
                 try {
                     const response = await fetch(endpoint, {
@@ -1223,7 +1455,7 @@ export default function Canvas({
     };
 
     // Handle pane click for placement mode
-    const handlePaneClick = useCallback((event: React.MouseEvent) => {
+    const handlePaneClick = useCallback(async (event: React.MouseEvent) => {
         if (!placementMode || !rfInstance) return;
 
         // Get the click position in flow coordinates
@@ -1236,12 +1468,8 @@ export default function Canvas({
             const clickX = position.x - 200;
             const clickY = position.y - 100;
 
-            // Generate temporary ID for optimistic update
             const tempId = `temp-${Date.now()}`;
-            const messages: Array<any> = [];
-
-            // Optimistic update - add block immediately
-            setBlockMessages((prev) => ({ ...prev, [tempId]: messages }));
+            // Optimistic update
             setNodes((nds) => nds.concat({
                 id: tempId,
                 type: 'chatBlock',
@@ -1251,42 +1479,194 @@ export default function Canvas({
                     boardId: boardId,
                     title: 'New Chat',
                     model: 'anthropic/claude-sonnet-4-5-20250929',
-                    messages: messages,
+                    messages: [],
                     links: initialLinksMap,
-                    isExpanded: true, // Auto-expand new blocks
+                    isExpanded: true,
                 },
             }));
 
-            // Create on server in background, then update with real ID
+            // Create on server
             createBlock(clickX, clickY).then(newBlock => {
                 if (newBlock) {
-                    // Replace temp node with real node
                     setNodes((nds) => nds.map(node => {
                         if (node.id === tempId) {
                             return {
                                 ...node,
                                 id: newBlock.id,
-                                data: {
-                                    ...node.data,
-                                    id: newBlock.id,
-                                },
+                                data: { ...node.data, id: newBlock.id },
                             };
                         }
                         return node;
                     }));
-
-                    // Update messages map with real ID
-                    setBlockMessages((prev) => {
-                        const { [tempId]: tempMessages, ...rest } = prev;
-                        return { ...rest, [newBlock.id]: tempMessages || [] };
-                    });
                 }
             });
+        } else if (placementMode === 'sticky') {
+            const tempId = `temp-sticky-${Date.now()}`;
+            const newNode: Node = {
+                id: tempId,
+                type: 'stickyNote',
+                position: position,
+                style: { width: 200, height: 200 },
+                data: {
+                    id: tempId,
+                    content: '',
+                    color: 'yellow',
+                    onUpdate: updateStickyNote,
+                    onDelete: deleteBlock, // Use unified delete handler
+                },
+            };
+            setNodes((nds) => nds.concat(newNode));
+
+            try {
+                const response = await fetch('/api/sticky-notes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        boardId,
+                        positionX: position.x,
+                        positionY: position.y,
+                        content: '',
+                        color: 'yellow',
+                    }),
+                });
+
+                if (response.ok) {
+                    const note = await response.json();
+                    setNodes((nds) =>
+                        nds.map(n => n.id === tempId ? { ...n, id: note.id, data: { ...n.data, id: note.id } } : n)
+                    );
+                } else {
+                    console.error('Failed to save sticky note');
+                    // Remove temp node on failure
+                    setNodes(nds => nds.filter(n => n.id !== tempId));
+                    setErrorToast('Failed to save sticky note');
+                }
+            } catch (error) {
+                console.error('Error creating sticky note:', error);
+                setNodes(nds => nds.filter(n => n.id !== tempId));
+                setErrorToast('Error creating sticky note');
+            }
         }
 
         // Exit placement mode
         setPlacementMode(null);
-    }, [placementMode, rfInstance, createBlock, setBlockMessages, setNodes, boardId, initialLinksMap]);
+    }, [placementMode, rfInstance, createBlock, setNodes, boardId, initialLinksMap, updateStickyNote, deleteStickyNote]);
+
+    // Track mouse position for paste
+    const mousePosRef = useRef({ x: 0, y: 0 });
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            mousePosRef.current = { x: e.clientX, y: e.clientY };
+        };
+        window.addEventListener('mousemove', handleMouseMove);
+        return () => window.removeEventListener('mousemove', handleMouseMove);
+    }, []);
+
+    // Handle Image Paste
+    const handleImagePaste = useCallback(async (file: File) => {
+        if (!rfInstance || !boardId) return;
+
+        // Use current mouse position converted to flow coords
+        const position = rfInstance.screenToFlowPosition({
+            x: mousePosRef.current.x,
+            y: mousePosRef.current.y
+        });
+
+        // 1. Upload image and create DB record
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('boardId', boardId);
+        formData.append('positionX', position.x.toString());
+        formData.append('positionY', position.y.toString());
+
+        try {
+            // Optimistic update - show immediately
+            const tempId = `temp-img-${Date.now()}`;
+            const previewUrl = URL.createObjectURL(file);
+
+            const newNode: Node = {
+                id: tempId,
+                type: 'imageNode',
+                position: position,
+                style: { width: 300, height: 'auto' }, // Default size
+                data: {
+                    id: tempId,
+                    name: file.name,
+                    url: previewUrl,
+                    mimeType: file.type,
+                    // Add handlers immediately so it works
+                    onDelete: (id: string) => {
+                        setNodes(nds => nds.filter(n => n.id !== id));
+                    }
+                },
+            };
+            setNodes(nds => nds.concat(newNode));
+
+            const response = await fetch('/api/images', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                // Replace temp node with real node
+                setNodes(nds => nds.map(n => {
+                    if (n.id === tempId) {
+                        return {
+                            ...n,
+                            id: data.id,
+                            data: {
+                                ...n.data,
+                                id: data.id,
+                                url: data.url, // Use real URL from storage
+                                name: data.name,
+                                mimeType: data.mimeType,
+                            }
+                        };
+                    }
+                    return n;
+                }));
+            } else {
+                console.error('Failed to upload pasted image');
+                // Remove temp node on failure
+                setNodes(nds => nds.filter(n => n.id !== tempId));
+                setErrorToast('Failed to upload image');
+                setTimeout(() => setErrorToast(null), 3000);
+            }
+        } catch (error) {
+            console.error('Error pasting image:', error);
+            setErrorToast('Error pasting image');
+            setTimeout(() => setErrorToast(null), 3000);
+        }
+    }, [rfInstance, boardId, setNodes]);
+
+    // Global Paste Listener
+    useEffect(() => {
+        const handlePaste = (e: ClipboardEvent) => {
+            // Check if we are pasting into an input/textarea - if so, ignore
+            if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+                return;
+            }
+
+            const items = e.clipboardData?.items;
+            if (!items) return;
+
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.startsWith('image/')) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        e.preventDefault(); // Prevent default browser paste
+                        handleImagePaste(file);
+                        return; // Handle one image at a time for now
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('paste', handlePaste as any);
+        return () => window.removeEventListener('paste', handlePaste as any);
+    }, [handleImagePaste]);
 
     return (
         <div className={`react-flow-canvas ${placementMode ? 'placement-mode' : ''}`}>
@@ -1457,6 +1837,22 @@ export default function Canvas({
                                 <polyline points="21 15 16 10 5 21" />
                             </svg>
                             <span>Image</span>
+                        </button>
+                        <button
+                            className="add-dropdown-item"
+                            onClick={() => {
+                                setShowAddMenu(false);
+                                setPlacementMode('sticky');
+                            }}
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                                <line x1="10" y1="9" x2="8" y2="9" />
+                            </svg>
+                            <span>Sticky Note</span>
                         </button>
                     </div>
                 )}

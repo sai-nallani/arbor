@@ -9,7 +9,7 @@ import { auth } from '@clerk/nextjs/server';
 import Dedalus, { DedalusRunner } from 'dedalus-labs';
 import { streamToWebResponse } from 'dedalus-react/server';
 import { db } from '@/db';
-import { messages, chatBlocks, aiErrorLogs, contextLinks, imageContextLinks, fileNodes } from '@/db/schema';
+import { messages, chatBlocks, aiErrorLogs, contextLinks, imageContextLinks, fileNodes, stickyContextLinks, stickyNotes } from '@/db/schema';
 import { eq, inArray, asc } from 'drizzle-orm';
 
 const client = new Dedalus({
@@ -210,6 +210,41 @@ export async function POST(req: NextRequest) {
             } catch (error) {
                 console.error(`[CHAT ${requestId}] Error fetching linked images:`, error);
                 // Continue without context images if query fails
+            }
+
+            // Fetch linked sticky notes for context
+            try {
+                const linkedStickyNotes = await db
+                    .select({
+                        content: stickyNotes.content,
+                        color: stickyNotes.color,
+                    })
+                    .from(stickyContextLinks)
+                    .innerJoin(stickyNotes, eq(stickyContextLinks.stickyNoteId, stickyNotes.id))
+                    .where(eq(stickyContextLinks.targetBlockId, chatBlockId));
+
+                console.log(`[CHAT ${requestId}] Linked sticky notes found: ${linkedStickyNotes.length}`);
+
+                if (linkedStickyNotes.length > 0) {
+                    // Combine all sticky note contents
+                    const stickyContent = linkedStickyNotes
+                        .filter(note => note.content && note.content.trim())
+                        .map(note => note.content)
+                        .join('\n\n---\n\n');
+
+                    if (stickyContent) {
+                        // Add as a user message at the beginning of context
+                        contextFromLinks.unshift({
+                            role: 'user',
+                            content: `Here are some notes provided as context for this conversation:\n\n${stickyContent}`
+                        });
+
+                        console.log(`[CHAT ${requestId}] Added ${linkedStickyNotes.length} sticky note(s) to context`);
+                    }
+                }
+            } catch (error) {
+                console.error(`[CHAT ${requestId}] Error fetching linked sticky notes:`, error);
+                // Continue without sticky notes if query fails
             }
         } else {
             console.log(`[CHAT ${requestId}] No chatBlockId, skipping context links`);

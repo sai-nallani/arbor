@@ -103,6 +103,7 @@ HTML_PAGE = """
                 <option value="openai/gpt-5.1">GPT-5.1</option>
                 <option value="anthropic/claude-opus-4-5-20251101">Opus 4.5</option>
                 <option value="google/gemini-3-pro-preview">Gemini 3</option>
+                <option value="openai/o4-mini-deep-research">O4 Mini Deep Research</option>
             </select>
         </div>
         <div class="config">

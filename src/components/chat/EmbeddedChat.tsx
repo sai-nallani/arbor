@@ -117,6 +117,7 @@ export default function EmbeddedChat({
         { value: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5' },
         { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
         { value: 'anthropic/claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+        { value: 'openai/o4-mini', label: 'o4-mini' },
         { value: 'openai/gpt-4.1', label: 'GPT-4.1 (Vision)' },
         { value: 'openai/gpt-4.1-mini', label: 'GPT-4.1 Mini (Vision)' },
         { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro' },

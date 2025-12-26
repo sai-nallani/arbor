@@ -2,7 +2,7 @@
 
 
 import { memo, useState, useCallback, useRef, useEffect } from 'react';
-import { Handle, Position, NodeResizer } from '@xyflow/react';
+import { Handle, Position, NodeResizer, useUpdateNodeInternals } from '@xyflow/react';
 import EmbeddedChat from '../chat/EmbeddedChat';
 
 interface ChatBlockData {
@@ -45,6 +45,15 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
     const [hasBeenResized, setHasBeenResized] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const lastMessage = data.messages[data.messages.length - 1];
+    const updateNodeInternals = useUpdateNodeInternals();
+
+    // Force update handles when resized or expanded
+    useEffect(() => {
+        updateNodeInternals(data.id);
+        // Double check with a small delay for animation completion
+        const timer = setTimeout(() => updateNodeInternals(data.id), 300);
+        return () => clearTimeout(timer);
+    }, [data.id, isExpanded, hasBeenResized, updateNodeInternals]);
 
     // Sync state if data.isExpanded changes (e.g. initial load vs client toggle)
     useEffect(() => {
@@ -118,8 +127,8 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
             <div
                 className={`chat-block-node ${selected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''} ${hasBeenResized ? 'resized' : ''}`}
                 style={isExpanded ? {
-                    width: '100%',
-                    height: '100%',
+                    width: hasBeenResized ? '100%' : 800,
+                    height: hasBeenResized ? '100%' : 800,
                     minWidth: 400,
                     minHeight: 350,
                     cursor: 'default',
@@ -277,7 +286,14 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                             </div>
                         </div>
 
-                        <div className="chat-block-content">
+                        <div
+                            className="chat-block-content"
+                            onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setIsExpanded(true);
+                                data.onExpandToggle?.(data.id, true);
+                            }}
+                        >
                             {data.messages.length === 0 ? (
                                 <p className="chat-block-empty">Double-click to chat...</p>
                             ) : (
@@ -306,6 +322,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     position={Position.Top}
                     className="chat-block-handle"
                     id="top"
+                    style={{ left: '50%', transform: 'translateX(-50%)' }}
                 />
 
                 {/* Output handle for branching (End of chat) */}
@@ -314,6 +331,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     position={Position.Bottom}
                     className="chat-block-handle"
                     id="bottom"
+                    style={{ left: '50%', transform: 'translateX(-50%)' }}
                 />
 
                 {/* Context link handles - right side for outgoing context */}
@@ -322,7 +340,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     position={Position.Right}
                     className="chat-block-handle context-handle"
                     id="context-out"
-                    style={{ top: '50%' }}
+                    style={{ top: '50%', transform: 'translateY(-50%)' }}
                 />
 
                 {/* Context link handles - left side for incoming context */}
@@ -331,7 +349,7 @@ function ChatBlockNode({ data, selected }: ChatBlockNodeProps) {
                     position={Position.Left}
                     className="chat-block-handle context-handle"
                     id="context-in"
-                    style={{ top: '50%' }}
+                    style={{ top: '50%', transform: 'translateY(-50%)' }}
                 />
             </div>
 

@@ -16,11 +16,6 @@ export function ThemeToggle({ isCollapsed = false }: ThemeToggleProps) {
 
     return (
         <div className={`theme-toggle-container ${isCollapsed ? 'collapsed' : ''}`}>
-            {!isCollapsed && (
-                <span className="theme-toggle-label">
-                    {isDark ? "Dark" : "Light"}
-                </span>
-            )}
             <button
                 className="toggle-switch"
                 onClick={toggleTheme}

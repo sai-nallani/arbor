@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/db';
-import { boards, users } from '@/db/schema';
+import { boards, users, chatBlocks } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
 // GET /api/boards - Fetch all boards for the authenticated user
@@ -74,6 +74,16 @@ export async function POST(request: NextRequest) {
                 name,
             })
             .returning();
+
+        // If it's a default "Untitled Board", automatically add a starter chat block
+        if (name === 'Untitled Board') {
+            await db.insert(chatBlocks).values({
+                boardId: newBoard.id,
+                title: 'New Chat',
+                positionX: 0,
+                positionY: 0,
+            });
+        }
 
         return NextResponse.json(newBoard, { status: 201 });
     } catch (error) {
