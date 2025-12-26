@@ -1078,7 +1078,7 @@ export default function Canvas({
                     quoteStart,
                     quoteEnd,
                     quoteText,
-                    model: 'anthropic/claude-opus-4-5', // Default to Opus 4.5 for branches
+                    model: 'anthropic/claude-sonnet-4-5-20250929', // Default to Sonnet for branches
                     hasImage: shouldHaveImage
                 }),
             });
@@ -1146,7 +1146,7 @@ export default function Canvas({
                             title: newBlock.title || 'New Branch',
                             messages: finalMessages,
                             branchContext: newBlock.branchContext,
-                            model: newBlock.model || 'anthropic/claude-opus-4-5',
+                            model: newBlock.model || 'anthropic/claude-sonnet-4-5-20250929',
                             isExpanded: true,
                             hasImage: newBlock.hasImage || shouldHaveImage,
                         },
@@ -1528,7 +1528,7 @@ export default function Canvas({
                     id: tempId,
                     boardId: boardId,
                     title: 'New Chat',
-                    model: 'anthropic/claude-opus-4-5',
+                    model: 'anthropic/claude-sonnet-4-5-20250929',
                     messages: [],
                     links: initialLinksMap,
                     isExpanded: true,

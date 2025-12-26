@@ -116,7 +116,7 @@ export default function EmbeddedChat({
     const allModelOptions = [
         { value: 'openai/gpt-5.1', label: 'GPT-5.1' },
         { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
-        { value: 'anthropic/claude-opus-4-5', label: 'Claude Opus 4.5' },
+
         { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
         { value: 'anthropic/claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
         { value: 'openai/o4-mini', label: 'o4-mini' },

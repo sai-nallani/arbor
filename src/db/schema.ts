@@ -28,7 +28,7 @@ export const chatBlocks = pgTable('chat_blocks', {
     id: uuid('id').defaultRandom().primaryKey(),
     boardId: uuid('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
     title: text('title').default('New Chat').notNull(),
-    model: text('model').default('anthropic/claude-opus-4-5').notNull(),
+    model: text('model').default('anthropic/claude-sonnet-4-5-20250929').notNull(),
     positionX: doublePrecision('position_x').notNull(),
     positionY: doublePrecision('position_y').notNull(),
     width: doublePrecision('width').default(800),

@@ -375,7 +375,7 @@ export async function POST(req: NextRequest) {
         });
 
         // Create streaming response using Dedalus
-        let targetModel = model || 'anthropic/claude-opus-4-5';
+        let targetModel = model || 'anthropic/claude-sonnet-4-5-20250929';
         // console.log(`[CHAT ${requestId}] Initial model: ${targetModel}`);
 
         // Check if ANY message has images to enforce vision model
