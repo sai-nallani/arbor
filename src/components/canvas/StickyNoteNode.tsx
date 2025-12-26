@@ -78,6 +78,15 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
                 style={{ top: '50%' }}
             />
 
+            {/* Context input handle - for receiving connections from chat blocks */}
+            <Handle
+                type="target"
+                position={Position.Left}
+                className="chat-block-handle context-handle"
+                id="context-in"
+                style={{ top: '50%' }}
+            />
+
             <Handle
                 type="source"
                 position={Position.Bottom}

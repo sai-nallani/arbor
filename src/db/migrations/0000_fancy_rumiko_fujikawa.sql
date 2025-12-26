@@ -20,7 +20,7 @@ CREATE TABLE "chat_blocks" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"board_id" uuid NOT NULL,
 	"title" text DEFAULT 'New Chat' NOT NULL,
-	"model" text DEFAULT 'openai/gpt-5' NOT NULL,
+	"model" text DEFAULT 'anthropic/claude-opus-4-5' NOT NULL,
 	"position_x" double precision NOT NULL,
 	"position_y" double precision NOT NULL,
 	"is_expanded" boolean DEFAULT false,

@@ -1,6 +1,6 @@
 {
-  "id": "8edbfee9-4cf3-4a42-a279-1320a8f30758",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "0e994bfb-9fc4-4651-9f4a-304b8e2b14de",
+  "prevId": "8edbfee9-4cf3-4a42-a279-1320a8f30758",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -164,6 +164,20 @@
           "type": "double precision",
           "primaryKey": false,
           "notNull": true
+        },
+        "width": {
+          "name": "width",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 800
+        },
+        "height": {
+          "name": "height",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 800
         },
         "is_expanded": {
           "name": "is_expanded",

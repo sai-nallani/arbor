@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
                 title: 'New Chat',
                 positionX: 0,
                 positionY: 0,
+                model: 'anthropic/claude-opus-4-5',
             });
         }
 
