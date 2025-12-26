@@ -239,6 +239,16 @@ export default function EmbeddedChat({
             // Embed image URLs in message content with a special marker for API to parse
             const imageMarkers = images.map(url => `[IMAGE:${url}]`).join(' ');
             messageContent = `${content}\n\n${imageMarkers}`;
+
+            // Update ref for useChat to pick up (if it reads fresh on send)
+            pendingImagesRef.current = images;
+        } else {
+            pendingImagesRef.current = [];
+        }
+
+        if (!blockId) {
+            console.error('[EmbeddedChat] Missing blockId, cannot save message or send chat');
+            return;
         }
 
         // Save user message to database FIRST to get the ID
@@ -263,7 +273,12 @@ export default function EmbeddedChat({
         }
 
         // Now send to AI (the API route won't re-save since we already saved)
-        sendMessage(messageContent);
+        console.log('[EmbeddedChat] Sending to AI:', { messageContent, effectiveModel, isSearchEnabled });
+        try {
+            await sendMessage(messageContent);
+        } catch (e) {
+            console.error('[EmbeddedChat] sendMessage error:', e);
+        }
         setIsSearchEnabled(false);
     };
 

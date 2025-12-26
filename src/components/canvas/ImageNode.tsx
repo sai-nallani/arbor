@@ -52,6 +52,15 @@ function ImageNode({ id, data, selected }: NodeProps) {
                     id="bottom"
                 />
 
+                {/* Context output handle - for linking to chat blocks */}
+                <Handle
+                    type="source"
+                    position={Position.Right}
+                    className="chat-block-handle context-handle"
+                    id="context-out"
+                    style={{ top: '50%' }}
+                />
+
                 {isExpanded ? (
                     // Expanded view - full image
                     <div className="image-node-expanded">

@@ -231,8 +231,14 @@ export default function Canvas({
 
         // Add Context Links (Context Edges)
         initialContextLinks.forEach(link => {
+            // Check if source is an image node
+            const isImageNode = initialFiles.some(f => f.id === link.sourceBlockId);
+            const imageUrl = isImageNode ? initialFiles.find(f => f.id === link.sourceBlockId)?.url : undefined;
+
             edges.push({
-                id: `context-${link.sourceBlockId}-${link.targetBlockId}`,
+                id: isImageNode
+                    ? `image-context-${link.sourceBlockId}-${link.targetBlockId}`
+                    : `context-${link.sourceBlockId}-${link.targetBlockId}`,
                 source: link.sourceBlockId,
                 target: link.targetBlockId,
                 sourceHandle: 'context-out',
@@ -243,6 +249,10 @@ export default function Canvas({
                     type: MarkerType.ArrowClosed,
                     color: '#A67B5B',
                 },
+                data: {
+                    isImageContext: isImageNode,
+                    imageUrl: imageUrl,
+                }
             });
         });
 
@@ -340,12 +350,14 @@ export default function Canvas({
         // Find the edge to get source and target IDs
         let sourceId: string | undefined;
         let targetId: string | undefined;
+        let isImageContext = false;
 
         setEdges((eds) => {
             const edge = eds.find(e => e.id === edgeId);
             if (edge) {
                 sourceId = edge.source;
                 targetId = edge.target;
+                isImageContext = !!edge.data?.isImageContext;
             }
             return eds.filter(e => e.id !== edgeId);
         });
@@ -359,18 +371,59 @@ export default function Canvas({
         }
 
         try {
-            const response = await fetch(`/api/context-links?sourceBlockId=${sourceId}&targetBlockId=${targetId}`, {
+            const endpoint = isImageContext
+                ? `/api/image-context-links?imageNodeId=${sourceId}&chatBlockId=${targetId}`
+                : `/api/context-links?sourceBlockId=${sourceId}&targetBlockId=${targetId}`;
+
+            const response = await fetch(endpoint, {
                 method: 'DELETE',
             });
             if (response.ok) {
-                console.log('Context link deleted:', sourceId, '→', targetId);
+                console.log(`${isImageContext ? 'Image context' : 'Context'} link deleted:`, sourceId, '→', targetId);
+
+                // If it was an image context link, check if we should update the target block's hasImage state
+                if (isImageContext && targetId) {
+                    const currentEdges = rfInstance ? rfInstance.getEdges() : [];
+
+                    // Check if there are any REMAINING image context links to this target
+                    // We filter out the current edgeId because setEdges might not have flushed yet for rfInstance (depends on implementation)
+                    // But usually rfInstance.getEdges() returns strict current state. 
+                    // Since we called setEdges above, and it's React state, rfInstance might still show the old one or not.
+                    // Safest is to filter out the deleted edge explicitly.
+                    const otherImageLinks = currentEdges.filter((e: Edge) =>
+                        e.target === targetId &&
+                        e.id !== edgeId &&
+                        (e.data?.isImageContext || e.source.startsWith('image-')) // Robust check
+                    );
+
+                    if (otherImageLinks.length === 0) {
+                        console.log('No remaining image links for block', targetId, '- setting hasImage=false');
+                        // Update local node state
+                        setNodes((nds) => nds.map((node) => {
+                            if (node.id === targetId) {
+                                return {
+                                    ...node,
+                                    data: { ...node.data, hasImage: false }
+                                };
+                            }
+                            return node;
+                        }));
+
+                        // Update server
+                        fetch(`/api/chat-blocks/${targetId}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ hasImage: false }),
+                        }).catch(e => console.error('Failed to sync hasImage=false:', e));
+                    }
+                }
             } else {
-                console.error('Failed to delete context link:', await response.text());
+                console.error(`Failed to delete ${isImageContext ? 'image context' : 'context'} link:`, await response.text());
             }
         } catch (error) {
             console.error('Error deleting context link:', error);
         }
-    }, [setEdges]);
+    }, [setEdges, rfInstance, setNodes]);
 
     // Inject onDelete callbacks into context edges loaded from database
     useEffect(() => {
@@ -390,39 +443,115 @@ export default function Canvas({
 
     // Handle new connections (user dragging from one node to another)
     const onConnect: OnConnect = useCallback((connection) => {
-        // Only allow connections between chatBlocks
         const sourceNode = nodesRef.current.find(n => n.id === connection.source);
         const targetNode = nodesRef.current.find(n => n.id === connection.target);
 
         if (!sourceNode || !targetNode) return;
-        if (sourceNode.type !== 'chatBlock' || targetNode.type !== 'chatBlock') return;
 
         // Prevent self-connections
         if (connection.source === connection.target) return;
 
-        // Add edge optimistically
-        const newEdge: Edge = {
-            id: `context-${connection.source}-${connection.target}`,
-            source: connection.source!,
-            target: connection.target!,
-            sourceHandle: 'context-out',
-            targetHandle: 'context-in',
-            type: 'context',
-            animated: false,
-            markerEnd: {
-                type: MarkerType.ArrowClosed,
-                color: '#A67B5B',
-            },
-            data: {
-                onDelete: deleteContextLink,
-            },
-        };
+        // Check if this is a context link (from context-out handle)
+        const isContextLink = connection.sourceHandle === 'context-out';
 
-        setEdges((eds) => addEdge(newEdge, eds));
+        if (isContextLink) {
+            // Context links: chatBlock→chatBlock or imageNode→chatBlock
+            const isValidContextSource = sourceNode.type === 'chatBlock' || sourceNode.type === 'imageNode';
+            const isValidContextTarget = targetNode.type === 'chatBlock';
 
-        // Create in database
-        createContextLink(connection.source!, connection.target!);
+            if (!isValidContextSource || !isValidContextTarget) {
+                console.log('Invalid context link: source must be chatBlock or imageNode, target must be chatBlock');
+                return;
+            }
+
+            // Add edge optimistically
+            const edgeId = sourceNode.type === 'imageNode'
+                ? `image-context-${connection.source}-${connection.target}`
+                : `context-${connection.source}-${connection.target}`;
+
+            const newEdge: Edge = {
+                id: edgeId,
+                source: connection.source!,
+                target: connection.target!,
+                sourceHandle: 'context-out',
+                targetHandle: 'context-in',
+                type: 'context',
+                animated: false,
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: '#A67B5B',
+                },
+                data: {
+                    onDelete: deleteContextLink,
+                    isImageContext: sourceNode.type === 'imageNode',
+                    imageUrl: sourceNode.type === 'imageNode' ? (sourceNode.data as any).url : undefined,
+                },
+            };
+
+            setEdges((eds) => addEdge(newEdge, eds));
+
+            // Create in database (reuse context-links API for now)
+            // For image context, we still use the same API but the source is an image node
+            if (sourceNode.type === 'chatBlock') {
+                createContextLink(connection.source!, connection.target!);
+            } else if (sourceNode.type === 'imageNode') {
+                // For image context links, we'll store it differently or reuse the same API
+                // For now, store as a context link - the API will need to handle this
+                createImageContextLink(connection.source!, connection.target!);
+            }
+        } else {
+            // Regular file links (only between chatBlocks)
+            if (sourceNode.type !== 'chatBlock' || targetNode.type !== 'chatBlock') return;
+            // ... existing file link logic would go here
+        }
     }, [setEdges, createContextLink, deleteContextLink]);
+
+    // Create an image context link
+    const createImageContextLink = useCallback(async (imageNodeId: string, chatBlockId: string) => {
+        try {
+            const response = await fetch('/api/image-context-links', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ imageNodeId, chatBlockId }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                console.warn('Image context link creation blocked:', error.error);
+                setErrorToast(error.error || 'Failed to create image context link');
+                setTimeout(() => setErrorToast(null), 4000);
+                // Remove optimistic edge on failure
+                setEdges((eds) => eds.filter(e => e.id !== `image-context-${imageNodeId}-${chatBlockId}`));
+                return;
+            }
+
+            console.log('Image context link created:', imageNodeId, '→', chatBlockId);
+
+            // Update target block hasImage state to true
+            setNodes((nds) => nds.map((node) => {
+                if (node.id === chatBlockId) {
+                    return {
+                        ...node,
+                        data: { ...node.data, hasImage: true }
+                    };
+                }
+                return node;
+            }));
+
+            // Persist check
+            fetch(`/api/chat-blocks/${chatBlockId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hasImage: true }),
+            }).catch(e => console.error('Failed to sync hasImage=true:', e));
+
+        } catch (error) {
+            console.warn('Image context link network error:', error);
+            setErrorToast('Network error creating image context link');
+            setTimeout(() => setErrorToast(null), 4000);
+            setEdges((eds) => eds.filter(e => e.id !== `image-context-${imageNodeId}-${chatBlockId}`));
+        }
+    }, [setEdges, setNodes]);
 
     // Delete a block
     const deleteBlock = useCallback(async (blockId: string) => {

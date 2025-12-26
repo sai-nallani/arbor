@@ -9,7 +9,7 @@ import { auth } from '@clerk/nextjs/server';
 import Dedalus, { DedalusRunner } from 'dedalus-labs';
 import { streamToWebResponse } from 'dedalus-react/server';
 import { db } from '@/db';
-import { messages, chatBlocks, aiErrorLogs, contextLinks } from '@/db/schema';
+import { messages, chatBlocks, aiErrorLogs, contextLinks, imageContextLinks, fileNodes } from '@/db/schema';
 import { eq, inArray, asc } from 'drizzle-orm';
 
 const client = new Dedalus({
@@ -171,11 +171,45 @@ export async function POST(req: NextRequest) {
                     role: m.role,
                     content: m.content
                 }));
-                console.log(`[CHAT ${requestId}] Context messages from links: ${contextFromLinks.length}`);
-                contextFromLinks.forEach((msg: any, i: number) => {
-                    const content = typeof msg.content === 'string' ? msg.content.substring(0, 80) : '[multipart]';
-                    console.log(`[CHAT ${requestId}]   [ctx ${i}] ${msg.role}: ${content}${content.length >= 80 ? '...' : ''}`);
-                });
+            }
+
+            // Fetch linked images for context
+            try {
+                const linkedImages = await db
+                    .select({
+                        url: fileNodes.url,
+                        name: fileNodes.name,
+                        mimeType: fileNodes.mimeType,
+                    })
+                    .from(imageContextLinks)
+                    .innerJoin(fileNodes, eq(imageContextLinks.imageNodeId, fileNodes.id))
+                    .where(eq(imageContextLinks.targetBlockId, chatBlockId));
+
+                console.log(`[CHAT ${requestId}] Linked images found: ${linkedImages.length}`);
+
+                if (linkedImages.length > 0) {
+                    // creating a user message with all images
+                    const imageContentParts = linkedImages.map(img => ({
+                        type: 'image_url',
+                        image_url: { url: img.url }
+                    }));
+
+                    const textPart = {
+                        type: 'text',
+                        text: `Here are ${linkedImages.length} image(s) provided as context for this conversation:`
+                    };
+
+                    // Add to the beginning of context links
+                    contextFromLinks.unshift({
+                        role: 'user',
+                        content: [textPart, ...imageContentParts]
+                    });
+
+                    console.log(`[CHAT ${requestId}] Added ${linkedImages.length} images to context`);
+                }
+            } catch (error) {
+                console.error(`[CHAT ${requestId}] Error fetching linked images:`, error);
+                // Continue without context images if query fails
             }
         } else {
             console.log(`[CHAT ${requestId}] No chatBlockId, skipping context links`);
@@ -314,10 +348,14 @@ export async function POST(req: NextRequest) {
         console.log(`[CHAT ${requestId}] Has images: ${hasImages}`);
 
         if (hasImages) {
-            // Dedalus only supports OpenAI for images currently
-            if (!targetModel.startsWith('openai/') || targetModel === 'openai/gpt-5' || targetModel === 'openai/gpt-5-pro' || targetModel === 'openai/gpt-5-mini' || targetModel === 'openai/o3' || targetModel === 'openai/o3-pro') {
-                console.log(`[CHAT ${requestId}] Auto-switching to openai/gpt-4.1 for vision`);
-                targetModel = 'openai/gpt-4.1';
+            // Dedalus currently ONLY supports OpenAI for vision inputs
+            // If the model is not an OpenAI model, switch to GPT-4o
+            // We do checking for specific OpenAI models to allow user to select different GPT-4 variants if available
+            const isOpenAIVision = targetModel.startsWith('openai/') && !['openai/gpt-3.5-turbo', 'openai/o1-preview', 'openai/o1-mini'].includes(targetModel);
+
+            if (!isOpenAIVision) {
+                console.log(`[CHAT ${requestId}] Auto-switching to openai/gpt-4o for vision support (original: ${targetModel} not supported for images)`);
+                targetModel = 'openai/gpt-4o';
             }
         }
 
@@ -343,7 +381,7 @@ export async function POST(req: NextRequest) {
         const runWithModel = async (model: string) => {
             const stream = await runner.run({
                 messages: aiMessages,
-                model,
+                model: [model, "openai/gpt-4.1"],
                 stream: true,
                 mcp_servers: isSearchEnabled ? ['https://mcp.exa.ai/mcp'] : undefined,
             });
@@ -430,4 +468,3 @@ export async function POST(req: NextRequest) {
         });
     }
 }
-

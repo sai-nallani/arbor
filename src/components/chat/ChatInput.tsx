@@ -7,6 +7,8 @@ export interface AttachedImage {
     previewUrl: string;
     uploading?: boolean;
     uploadedUrl?: string;
+    uploadedName?: string;    // Original filename for DB record
+    uploadedMimeType?: string; // MIME type for DB record
 }
 
 export interface UploadedImageInfo {
@@ -60,13 +62,14 @@ export default function ChatInput({
         }
     }, [value]);
 
-    const uploadImage = async (file: File): Promise<{ url: string; id: string; name: string } | null> => {
+    const uploadImage = async (file: File): Promise<{ url: string; name: string; mimeType: string; id: string } | null> => {
         if (!boardId) {
             console.error('[ChatInput] No boardId provided for image upload');
             return null;
         }
 
-        console.log(`[ChatInput] Starting upload for ${file.name} to board ${boardId}`);
+        // Upload to storage AND create DB record immediately so canvas node appears
+        console.log(`[ChatInput] Uploading image and creating DB record: ${file.name}`);
         const formData = new FormData();
         formData.append('file', file);
         formData.append('boardId', boardId);
@@ -80,15 +83,17 @@ export default function ChatInput({
             });
 
             const data = await response.json();
-            console.log('[ChatInput] Upload response body:', data);
+            console.log('[ChatInput] Upload response:', data);
 
             if (response.ok) {
-                if (!data.id) {
-                    console.error('[ChatInput] ID MISSING from successful upload response!');
-                }
-                // Notify parent about the uploaded image so it can create a canvas node
-                onImageUploaded?.({ id: data.id, url: data.url, name: data.name, mimeType: data.mimeType });
-                return { url: data.url, id: data.id, name: data.name };
+                // Notify parent to create canvas node immediately
+                onImageUploaded?.({
+                    id: data.id,
+                    url: data.url,
+                    name: data.name,
+                    mimeType: data.mimeType
+                });
+                return { url: data.url, name: data.name, mimeType: data.mimeType, id: data.id };
             } else {
                 console.error('[ChatInput] Upload failed:', response.status, data);
                 return null;
@@ -121,7 +126,13 @@ export default function ChatInput({
 
             setAttachedImages(prev => prev.map((img) => {
                 if (img.previewUrl === newImages[i].previewUrl) {
-                    return { ...img, uploading: false, uploadedUrl: result?.url };
+                    return {
+                        ...img,
+                        uploading: false,
+                        uploadedUrl: result?.url,
+                        uploadedName: result?.name,
+                        uploadedMimeType: result?.mimeType,
+                    };
                 }
                 return img;
             }));
@@ -161,11 +172,10 @@ export default function ChatInput({
     };
 
     // Handle send
-    const handleSend = () => {
+    const handleSend = async () => {
         const trimmed = value.trim();
-        const uploadedUrls = attachedImages
-            .filter(img => img.uploadedUrl)
-            .map(img => img.uploadedUrl!);
+        const uploadedImages = attachedImages.filter(img => img.uploadedUrl);
+        const uploadedUrls = uploadedImages.map(img => img.uploadedUrl!);
 
         if (!trimmed && uploadedUrls.length === 0) return;
         if (isLoading) return;
@@ -175,6 +185,9 @@ export default function ChatInput({
             alert('Please wait for images to finish uploading');
             return;
         }
+
+        // DB records and canvas nodes are created immediately during upload
+        // No need to create them here
 
         onSend(trimmed, uploadedUrls.length > 0 ? uploadedUrls : undefined);
         setValue('');

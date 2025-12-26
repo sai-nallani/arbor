@@ -87,6 +87,18 @@ export const contextLinks = pgTable('context_links', {
     uniqueIndex('context_links_unique_idx').on(table.sourceBlockId, table.targetBlockId),
 ]);
 
+// Image context links - directed edges for image context sharing to chat blocks
+// If image A → chatBlock B exists, B includes A's image as context in its messages
+export const imageContextLinks = pgTable('image_context_links', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    imageNodeId: uuid('image_node_id').notNull().references(() => fileNodes.id, { onDelete: 'cascade' }),
+    targetBlockId: uuid('target_block_id').notNull().references(() => chatBlocks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    // Prevent duplicate links between same image and chat block
+    uniqueIndex('image_context_links_unique_idx').on(table.imageNodeId, table.targetBlockId),
+]);
+
 // ============================================
 // RELATIONS
 // ============================================

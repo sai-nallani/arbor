@@ -2100,8 +2100,11 @@ body {
   border-radius: 8px;
   min-width: 180px;
   min-height: 80px;
-  overflow: hidden;
+  overflow: visible;
+  /* Changed from hidden to allow handles to show */
   transition: box-shadow 0.2s ease;
+  position: relative;
+  /* Ensure handles position correctly */
 }
 
 .image-node.selected {

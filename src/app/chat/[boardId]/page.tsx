@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
-import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks, contextLinks } from '@/db/schema';
+import { boards, chatBlocks, messages, messageLinks, fileNodes, fileLinks, contextLinks, imageContextLinks } from '@/db/schema';
 import { eq, and, inArray } from 'drizzle-orm';
 import CanvasWrapper from '@/components/canvas/CanvasWrapper';
 
@@ -106,8 +106,9 @@ export default async function BoardPage({ params }: PageProps) {
     // Fetch context links between chat blocks on this board
     const blockIds = blocks.map(b => b.id);
     let contextLinksData: { id: string; sourceBlockId: string; targetBlockId: string }[] = [];
+
     if (blockIds.length > 0) {
-        const rawLinks = await db
+        const rawChatLinks = await db
             .select({
                 id: contextLinks.id,
                 sourceBlockId: contextLinks.sourceBlockId,
@@ -115,7 +116,23 @@ export default async function BoardPage({ params }: PageProps) {
             })
             .from(contextLinks)
             .where(inArray(contextLinks.sourceBlockId, blockIds));
-        contextLinksData = rawLinks;
+
+        contextLinksData = [...rawChatLinks];
+    }
+
+    // Fetch image context links (image -> chat block)
+    const fileIds = files.map(f => f.id);
+    if (fileIds.length > 0) {
+        const rawImageLinks = await db
+            .select({
+                id: imageContextLinks.id,
+                sourceBlockId: imageContextLinks.imageNodeId, // Alias imageNodeId as sourceBlockId
+                targetBlockId: imageContextLinks.targetBlockId,
+            })
+            .from(imageContextLinks)
+            .where(inArray(imageContextLinks.imageNodeId, fileIds));
+
+        contextLinksData = [...contextLinksData, ...rawImageLinks];
     }
 
     return (

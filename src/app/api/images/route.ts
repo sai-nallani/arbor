@@ -1,7 +1,11 @@
 /**
- * Image Upload API Route
+ * Image API Route
  * 
- * POST /api/images - Upload image to Supabase Storage and create fileNode entry
+ * POST /api/images - Create fileNode entry in database
+ * 
+ * Supports two modes:
+ * 1. FormData with file - Upload to Supabase Storage AND create fileNode entry (legacy)
+ * 2. JSON body with url - Create fileNode entry only (for deferred DB creation)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,6 +22,55 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        const contentType = request.headers.get('content-type') || '';
+
+        // Check if this is a JSON request (deferred DB creation with pre-uploaded URL)
+        if (contentType.includes('application/json')) {
+            const body = await request.json();
+            const { boardId, url, name, mimeType, positionX = 0, positionY = 0 } = body;
+
+            if (!boardId) {
+                return NextResponse.json({ error: 'Board ID required' }, { status: 400 });
+            }
+
+            if (!url) {
+                return NextResponse.json({ error: 'URL required' }, { status: 400 });
+            }
+
+            console.log('[POST /api/images] Creating DB entry for pre-uploaded image:', url);
+
+            // Create fileNode entry in database
+            const insertValues = {
+                boardId,
+                name: name || 'Uploaded Image',
+                mimeType: mimeType || 'image/png',
+                url,
+                positionX: parseFloat(positionX) || 0,
+                positionY: parseFloat(positionY) || 0,
+            };
+            console.log('[POST /api/images] Inserting values:', JSON.stringify(insertValues));
+
+            const returningResult = await db.insert(fileNodes).values(insertValues).returning();
+
+            if (!returningResult || returningResult.length === 0) {
+                console.error('[POST /api/images] Database insert failed or returned no data');
+                throw new Error('Database insert failed');
+            }
+
+            const fileNode = returningResult[0];
+            console.log('[POST /api/images] File node created with ID:', fileNode.id);
+
+            return NextResponse.json({
+                id: fileNode.id,
+                name: fileNode.name,
+                url: fileNode.url,
+                mimeType: fileNode.mimeType,
+                positionX: fileNode.positionX,
+                positionY: fileNode.positionY,
+            });
+        }
+
+        // Original FormData handling - upload file AND create DB entry
         const formData = await request.formData();
         const file = formData.get('file') as File;
         const boardId = formData.get('boardId') as string;
