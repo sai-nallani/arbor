@@ -412,6 +412,19 @@ export async function POST(req: NextRequest) {
 
         // console.log(`[CHAT ${requestId}] Calling Dedalus with model: ${targetModel}`);
 
+        // WORKAROUND: Append a trailing space to the last user message to avoid empty response bug
+        // with specific short prompts like "i'm confused". a trailing space works around this issue.
+        if (aiMessages.length > 0) {
+            const lastMsg = aiMessages[aiMessages.length - 1];
+            if (lastMsg.role === 'user' && typeof lastMsg.content === 'string') {
+                aiMessages[aiMessages.length - 1] = {
+                    ...lastMsg,
+                    content: lastMsg.content + ' '
+                };
+                // console.log(`[CHAT ${requestId}] Applied whitespace workaround to last message`);
+            }
+        }
+
         // Helper function to run with a model and stream response
         const runWithModel = async (model: string) => {
             const stream = await runner.run({
