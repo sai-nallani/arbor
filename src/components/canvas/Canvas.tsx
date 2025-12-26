@@ -930,23 +930,109 @@ export default function Canvas({
 
     // Handle expand toggle persistence
     const handleExpandToggle = useCallback(async (blockId: string, isExpanded: boolean) => {
-        // Optimistic update
+        let needsDbFetch = false;
+
         setNodes((nds) => nds.map((node) => {
             if (node.id === blockId) {
-                return {
-                    ...node,
-                    data: { ...node.data, isExpanded }
-                };
+                const currentData = node.data as any;
+
+                if (!isExpanded) {
+                    // Minimizing: Save current dimensions to data 
+                    // and CLEAR style AND node dimensions to force re-measure
+
+                    // Save mostly from style as that is what we manipulate
+                    const widthToSave = node.style?.width || node.width;
+                    const heightToSave = node.style?.height || node.height;
+
+                    // console.log(`[Canvas] Minimizing block ${blockId}, saving dimensions:`, widthToSave, heightToSave);
+
+                    const newData = {
+                        ...node.data,
+                        isExpanded: false,
+                        expandedWidth: widthToSave,
+                        expandedHeight: heightToSave,
+                    };
+
+                    return {
+                        ...node,
+                        width: undefined, // Force re-measure
+                        height: undefined,
+                        style: {
+                            ...node.style,
+                            width: undefined,
+                            height: undefined
+                        },
+                        data: newData
+                    };
+                } else {
+                    // Expanding: Restore dimensions from data if available
+                    // console.log(`[Canvas] Expanding block ${blockId}, cached dimensions:`, currentData.expandedWidth, currentData.expandedHeight);
+
+                    if (currentData.expandedWidth && currentData.expandedHeight) {
+                        return {
+                            ...node,
+                            style: {
+                                ...node.style,
+                                width: currentData.expandedWidth,
+                                height: currentData.expandedHeight,
+                            },
+                            data: { ...node.data, isExpanded: true }
+                        };
+                    }
+
+                    // If no cached dimensions, mark for DB fetch
+                    needsDbFetch = true;
+
+                    return {
+                        ...node,
+                        style: {
+                            ...node.style,
+                            width: 800, // Reasonable default until DB fetch
+                            height: 800
+                        },
+                        data: { ...node.data, isExpanded: true }
+                    };
+                }
             }
             return node;
         }));
 
         try {
+            // Persist isExpanded state
             await fetch(`/api/chat-blocks/${blockId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ isExpanded }),
             });
+
+            // If expanding and we need authoritative dimensions from DB
+            if (isExpanded && needsDbFetch) {
+                const res = await fetch(`/api/chat-blocks/${blockId}`);
+                if (res.ok) {
+                    const blockData = await res.json();
+
+                    setNodes((nds) => nds.map((node) => {
+                        if (node.id === blockId && node.data.isExpanded) {
+                            // Only update if we still don't have good dimensions (race condition check)
+                            // or just force update to be safe
+                            return {
+                                ...node,
+                                style: {
+                                    ...node.style,
+                                    width: blockData.width || 800,
+                                    height: blockData.height || 800
+                                },
+                                data: {
+                                    ...node.data,
+                                    expandedWidth: blockData.width,
+                                    expandedHeight: blockData.height
+                                } as any
+                            };
+                        }
+                        return node;
+                    }));
+                }
+            }
         } catch (error) {
             console.error('Failed to update block expansion:', error);
         }
@@ -1465,35 +1551,7 @@ export default function Canvas({
                 }
             }
 
-            // Save dimension changes (resize)
-            if (change.type === 'dimensions' && change.dimensions) {
-                // console.log('Dimension change detected:', change.id, change.dimensions);
-                const node = nodesRef.current.find(n => n.id === change.id);
-                if (!node) return;
 
-                // Ignore temporary nodes
-                if (change.id.startsWith('temp-')) return;
-
-                // Only chatBlocks persist dimensions for now
-                if (node.type !== 'chatBlock') return;
-
-                try {
-                    const response = await fetch(`/api/chat-blocks/${change.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            width: change.dimensions.width,
-                            height: change.dimensions.height,
-                        }),
-                    });
-
-                    if (!response.ok) {
-                        console.error('Failed to save node dimensions');
-                    }
-                } catch (error) {
-                    console.error('Error saving node dimensions:', error);
-                }
-            }
         });
     }, [onNodesChange]); // Removed 'nodes' dependency
 
