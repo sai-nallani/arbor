@@ -119,13 +119,15 @@ export async function POST(req: NextRequest) {
 
         // ... Inject hidden context ...
         const processedCurrentMessages = repairedMessages.map((msg: any) => {
+            let content = msg.content;
             if (msg.hiddenContext && typeof msg.content === 'string') {
-                return {
-                    ...msg,
-                    content: `[Context: ${msg.hiddenContext}]\n\n${msg.content}`
-                };
+                content = `[Context: ${msg.hiddenContext}]\n\n${msg.content}`;
             }
-            return msg;
+            // Strictly return standard fields. OpenAI Responses API complains if 'id' is not in 'msg_' format.
+            return {
+                role: msg.role,
+                content: content
+            };
         });
 
         // ... Fetch detailed context links ...
@@ -161,8 +163,8 @@ export async function POST(req: NextRequest) {
             try {
                 const linkedImages = await db.select({ url: fileNodes.url }).from(imageContextLinks).innerJoin(fileNodes, eq(imageContextLinks.imageNodeId, fileNodes.id)).where(eq(imageContextLinks.targetBlockId, chatBlockId));
                 if (linkedImages.length > 0) {
-                    const imageContentParts = linkedImages.map(img => ({ type: 'image_url', image_url: { url: img.url } }));
-                    const textPart = { type: 'text', text: `Here are ${linkedImages.length} image(s) provided as context:` };
+                    const imageContentParts = linkedImages.map(img => ({ type: 'input_image', image_url: img.url }));
+                    const textPart = { type: 'input_text', text: `Here are ${linkedImages.length} image(s) provided as context:` };
                     contextFromLinks.unshift({ role: 'user', content: [textPart, ...imageContentParts] });
                 }
             } catch (ignore) { }
@@ -230,8 +232,8 @@ export async function POST(req: NextRequest) {
                 cleanContent = msg.content.replace(imageMarkerRegex, '').trim();
             }
 
-            if (cleanContent) contentParts.push({ type: 'text', text: cleanContent });
-            for (const url of msgImageUrls) contentParts.push({ type: 'image_url', image_url: { url } });
+            if (cleanContent) contentParts.push({ type: 'input_text', text: cleanContent });
+            for (const url of msgImageUrls) contentParts.push({ type: 'input_image', image_url: url });
 
             return { ...msg, content: contentParts };
         });
