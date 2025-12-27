@@ -314,6 +314,11 @@ export async function POST(req: NextRequest) {
                         // If event is a content delta:
                         let deltaContent = '';
 
+                        // Log ALL event types to debug
+                        if ((event as any).type) {
+                            console.log(`[CHAT ${requestId}] Event type: ${(event as any).type}`);
+                        }
+
                         // Robust check for various response shapes (since docs are new)
                         // Case A: Responses API Delta (Found in test script)
                         if ((event as any).type === 'response.output_item.delta') {
@@ -332,13 +337,28 @@ export async function POST(req: NextRequest) {
                             deltaContent = (event as any).choices[0].delta.content;
                         }
 
-                        // Extract Usage (usually in final chunk or separate event)
+                        // Extract Usage - Responses API returns usage in response.completed event
+                        // Log ALL events of type response.completed to debug
+                        if ((event as any).type === 'response.completed') {
+                            console.log(`[CHAT ${requestId}] response.completed event:`, JSON.stringify(event, null, 2));
+                            const usage = (event as any).response?.usage;
+                            if (usage) {
+                                // Responses API uses input_tokens + output_tokens, not total_tokens
+                                const inputTokens = usage.input_tokens || 0;
+                                const outputTokens = usage.output_tokens || 0;
+                                totalUsage = usage.total_tokens || (inputTokens + outputTokens);
+                                console.log(`[CHAT ${requestId}] Usage extracted: input=${inputTokens}, output=${outputTokens}, total=${totalUsage}`);
+                            }
+                        }
+
+                        // Also check top-level usage (legacy format)
                         if ((event as any).usage) {
                             const usage = (event as any).usage;
-                            if (usage.total_tokens) {
-                                totalUsage = usage.total_tokens;
-                                // console.log(`[CHAT ${requestId}] Usage info received: ${totalUsage} tokens`);
-                            }
+                            console.log(`[CHAT ${requestId}] Top-level usage event:`, JSON.stringify(usage));
+                            const inputTokens = usage.input_tokens || usage.prompt_tokens || 0;
+                            const outputTokens = usage.output_tokens || usage.completion_tokens || 0;
+                            totalUsage = usage.total_tokens || (inputTokens + outputTokens);
+                            console.log(`[CHAT ${requestId}] Total tokens from top-level: ${totalUsage}`);
                         }
 
                         if (deltaContent) {
@@ -369,7 +389,8 @@ export async function POST(req: NextRequest) {
                             // Calculate deep research increment (1 if used, 0 otherwise)
                             const deepResearchIncrement = isDeepResearchEnabled ? 1 : 0;
 
-                            // Simple Upsert logic with atomic increments
+                            console.log(`[CHAT ${requestId}] Updating usage - totalUsage: ${totalUsage}, deepResearchIncrement: ${deepResearchIncrement}`);
+
                             await db.insert(dailyTokenUsage).values({
                                 userId: userId,
                                 date: today,
@@ -383,6 +404,7 @@ export async function POST(req: NextRequest) {
                                     updatedAt: new Date()
                                 }
                             });
+                            console.log(`[CHAT ${requestId}] Usage stats updated successfully`);
                         } catch (dbErr) {
                             console.error(`[CHAT ${requestId}] Failed to update usage stats:`, dbErr);
                         }
