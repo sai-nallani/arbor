@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
                 .values({
                     boardId,
                     title: title || 'New Chat',
-                    model: body.model || 'anthropic/claude-sonnet-4-5-20250929',
+                    model: body.model || 'openai/gpt-5.1',
                     positionX: positionX ?? 250,
                     positionY: positionY ?? 150,
                     parentId: parentId || null,

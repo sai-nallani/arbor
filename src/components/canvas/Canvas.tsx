@@ -1164,7 +1164,7 @@ export default function Canvas({
                     quoteStart,
                     quoteEnd,
                     quoteText,
-                    model: 'anthropic/claude-sonnet-4-5-20250929', // Default to Sonnet for branches
+                    model: 'openai/gpt-5.1', // Default to GPT-5.1 for branches
                     hasImage: shouldHaveImage
                 }),
             });
@@ -1232,7 +1232,7 @@ export default function Canvas({
                             title: newBlock.title || 'New Branch',
                             messages: finalMessages,
                             branchContext: newBlock.branchContext,
-                            model: newBlock.model || 'anthropic/claude-sonnet-4-5-20250929',
+                            model: newBlock.model || 'openai/gpt-5.1',
                             isExpanded: true,
                             hasImage: newBlock.hasImage || shouldHaveImage,
                         },
@@ -1586,7 +1586,7 @@ export default function Canvas({
                     id: tempId,
                     boardId: boardId,
                     title: 'New Chat',
-                    model: 'anthropic/claude-sonnet-4-5-20250929',
+                    model: 'openai/gpt-5.1',
                     messages: [],
                     links: initialLinksMap,
                     isExpanded: true,

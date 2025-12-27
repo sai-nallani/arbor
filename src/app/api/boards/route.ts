@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
                 title: 'New Chat',
                 positionX: 0,
                 positionY: 0,
-                model: 'anthropic/claude-sonnet-4-5-20250929',
+                model: 'openai/gpt-5.1',
             });
         }
 

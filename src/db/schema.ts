@@ -28,7 +28,7 @@ export const chatBlocks = pgTable('chat_blocks', {
     id: uuid('id').defaultRandom().primaryKey(),
     boardId: uuid('board_id').notNull().references(() => boards.id, { onDelete: 'cascade' }),
     title: text('title').default('New Chat').notNull(),
-    model: text('model').default('anthropic/claude-sonnet-4-5-20250929').notNull(),
+    model: text('model').default('openai/gpt-5.1').notNull(),
     positionX: doublePrecision('position_x').notNull(),
     positionY: doublePrecision('position_y').notNull(),
     width: doublePrecision('width').default(800),
@@ -126,6 +126,8 @@ export const stickyContextLinks = pgTable('sticky_context_links', {
 }, (table) => [
     uniqueIndex('sticky_context_links_unique_idx').on(table.stickyNoteId, table.targetBlockId),
 ]);
+
+
 
 // ============================================
 // RELATIONS
@@ -252,3 +254,17 @@ export type NewStickyNote = typeof stickyNotes.$inferInsert;
 
 export type StickyContextLink = typeof stickyContextLinks.$inferSelect;
 export type NewStickyContextLink = typeof stickyContextLinks.$inferInsert;
+
+// Daily Token Usage - for rate limiting
+export const dailyTokenUsage = pgTable('daily_token_usage', {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: text('user_id'), // Nullable if anon, but ideally linked to user
+    date: text('date').notNull(), // Format: YYYY-MM-DD
+    tokenCount: doublePrecision('token_count').default(0).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    uniqueIndex('daily_token_usage_user_date_idx').on(table.userId, table.date),
+]);
+
+export type DailyTokenUsage = typeof dailyTokenUsage.$inferSelect;
+export type NewDailyTokenUsage = typeof dailyTokenUsage.$inferInsert;

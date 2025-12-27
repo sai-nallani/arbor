@@ -43,8 +43,9 @@ interface ContextMenuState {
 
 // Vision-capable models
 const VISION_MODELS = [
-    'openai/gpt-4.1',
-    'openai/gpt-4.1-mini',
+    'openai/gpt-5.1',
+    'openai/gpt-5-mini',
+    'openai/gpt-4o',
 ];
 
 export default function EmbeddedChat({
@@ -58,7 +59,7 @@ export default function EmbeddedChat({
     onBranch,
     onLinkClick,
     links,
-    model = 'anthropic/claude-sonnet-4-5-20250929',
+    model = 'openai/gpt-5.1',
     onModelChange,
     branchContext,
     hasBeenResized = false,
@@ -73,6 +74,7 @@ export default function EmbeddedChat({
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
     const [branchPending, setBranchPending] = useState<ContextMenuState | null>(null);
     const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+    const [thinkHarder, setThinkHarder] = useState(false);
     const [hasImagesInContext, setHasImagesInContext] = useState(hasImage);
     const pendingImagesRef = useRef<string[]>([]);
 
@@ -116,14 +118,8 @@ export default function EmbeddedChat({
     const allModelOptions = [
         { value: 'openai/gpt-5.1', label: 'GPT-5.1' },
         { value: 'openai/gpt-5-mini', label: 'GPT-5 Mini' },
+        { value: 'openai/gpt-4o', label: 'GPT-4o' },
 
-        { value: 'anthropic/claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
-        { value: 'anthropic/claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
-        { value: 'openai/o4-mini', label: 'o4-mini' },
-        { value: 'openai/o4-mini-deep-research', label: 'o4-mini Deep Research' },
-        { value: 'openai/gpt-4.1', label: 'GPT-4.1 (Vision)' },
-        { value: 'openai/gpt-4.1-mini', label: 'GPT-4.1 Mini (Vision)' },
-        { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro' },
     ];
 
     // Filter to vision-only models when images are in context
@@ -157,7 +153,7 @@ export default function EmbeddedChat({
         })),
         transport: {
             api: '/api/chat',
-            body: { chatBlockId: blockId, model: effectiveModel, isSearchEnabled, branchContext, imageUrls: pendingImagesRef.current },
+            body: { chatBlockId: blockId, model: effectiveModel, isSearchEnabled, thinkHarder, branchContext, imageUrls: pendingImagesRef.current },
         },
         onFinish: async ({ message }) => {
 
@@ -672,6 +668,9 @@ export default function EmbeddedChat({
                     boardId={boardId}
                     onImagesChange={(hasInputImages) => setHasImagesInContext(hasInputImages || hasImage)}
                     onImageUploaded={onImageUploaded}
+                    thinkHarderEnabled={thinkHarder}
+                    isThinkHarderDisabled={effectiveModel !== 'openai/gpt-5.1'}
+                    onThinkHarderToggle={setThinkHarder}
                 />
             </div>
 

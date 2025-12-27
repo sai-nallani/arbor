@@ -29,6 +29,9 @@ interface ChatInputProps {
     boardId?: string;
     onImagesChange?: (hasImages: boolean) => void;
     onImageUploaded?: (imageInfo: UploadedImageInfo) => void;
+    thinkHarderEnabled?: boolean;
+    isThinkHarderDisabled?: boolean; // e.g. if model doesn't support reasoning
+    onThinkHarderToggle?: (enabled: boolean) => void;
 }
 
 export default function ChatInput({
@@ -42,6 +45,9 @@ export default function ChatInput({
     boardId,
     onImagesChange,
     onImageUploaded,
+    thinkHarderEnabled = false,
+    isThinkHarderDisabled = false,
+    onThinkHarderToggle,
 }: ChatInputProps) {
     const [value, setValue] = useState('');
     const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
@@ -278,7 +284,7 @@ export default function ChatInput({
                                 alignItems: 'center',
                                 gap: '6px',
                                 width: 'auto',
-                                paddingRight: '8px'
+                                paddingRight: '12px'
                             }}
                         >
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -286,6 +292,31 @@ export default function ChatInput({
                                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                             </svg>
                             <span style={{ fontSize: '13px', fontWeight: 500 }}>Web Search</span>
+                        </button>
+
+                        <button
+                            className={`chat-tool-btn ${thinkHarderEnabled ? 'active' : ''}`}
+                            type="button"
+                            title={isThinkHarderDisabled ? "Think Harder (Only available for GPT-5.1)" : "Toggle Think Harder"}
+                            onClick={() => !isThinkHarderDisabled && onThinkHarderToggle?.(!thinkHarderEnabled)}
+                            disabled={isThinkHarderDisabled}
+                            style={{
+                                color: thinkHarderEnabled && !isThinkHarderDisabled ? 'var(--accent)' : 'currentColor',
+                                opacity: isThinkHarderDisabled ? 0.4 : 1,
+                                cursor: isThinkHarderDisabled ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                width: 'auto',
+                                paddingRight: '8px'
+                            }}
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+                                <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+                                <path d="M12 5v13" />
+                            </svg>
+                            <span style={{ fontSize: '13px', fontWeight: 500 }}>Think Harder</span>
                         </button>
                     </div>
                     <div className="chat-input-actions">
