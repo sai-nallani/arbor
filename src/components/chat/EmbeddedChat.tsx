@@ -78,6 +78,15 @@ export default function EmbeddedChat({
     const [hasImagesInContext, setHasImagesInContext] = useState(hasImage);
     const pendingImagesRef = useRef<string[]>([]);
 
+    // Refs to store transport body values - prevents useChat from reinitializing on state changes
+    const transportBodyRef = useRef({
+        isSearchEnabled: false,
+        thinkHarder: false,
+        model: model,
+        branchContext: branchContext,
+        pendingHiddenContext: null as string | null, // For auto-triggered branch messages
+    });
+
     // UI states for Rename and Delete
     const [isRenaming, setIsRenaming] = useState(false);
     const [renameValue, setRenameValue] = useState(title);
@@ -128,11 +137,12 @@ export default function EmbeddedChat({
         : allModelOptions;
 
     // Separate persistent history from a pending user prompt (for auto-reply)
-    const [processedMessages, pendingPrompt] = useMemo(() => {
+    // Store full message object to preserve hiddenContext
+    const [processedMessages, pendingPromptMsg] = useMemo(() => {
         if (initialMessages.length > 0) {
             const lastMsg = initialMessages[initialMessages.length - 1];
             if (lastMsg.role === 'user') {
-                return [initialMessages.slice(0, -1), lastMsg.content];
+                return [initialMessages.slice(0, -1), lastMsg]; // Return full message object
             }
         }
         return [initialMessages, null];
@@ -150,10 +160,21 @@ export default function EmbeddedChat({
             id: (m as any).id || `${blockId}-${i}`,
             role: m.role,
             content: m.content,
-        })),
+            // Pass hiddenContext so the API can inject it for the AI
+            hiddenContext: (m as any).hiddenContext,
+        } as any)),
         transport: {
             api: '/api/chat',
-            body: { chatBlockId: blockId, model: effectiveModel, isSearchEnabled, thinkHarder, branchContext, imageUrls: pendingImagesRef.current },
+            // Use refs to avoid reinitializing useChat on every state change
+            body: {
+                chatBlockId: blockId,
+                model: transportBodyRef.current.model,
+                isSearchEnabled: transportBodyRef.current.isSearchEnabled,
+                thinkHarder: transportBodyRef.current.thinkHarder,
+                branchContext: transportBodyRef.current.branchContext,
+                imageUrls: pendingImagesRef.current,
+                pendingHiddenContext: transportBodyRef.current.pendingHiddenContext, // Pass highlighted text context
+            },
         },
         onFinish: async ({ message }) => {
 
@@ -194,18 +215,49 @@ export default function EmbeddedChat({
     });
 
     const hasInitialized = useRef(false);
+    // Stable ref for sendMessage to avoid useEffect dependency issues
+    const sendMessageRef = useRef(sendMessage);
+    useEffect(() => {
+        sendMessageRef.current = sendMessage;
+    }, [sendMessage]);
 
     // Auto-trigger response if there is a pending prompt
     useEffect(() => {
-        if (!hasInitialized.current && pendingPrompt) {
+        if (!hasInitialized.current && pendingPromptMsg) {
             hasInitialized.current = true;
-            sendMessage(pendingPrompt);
-        }
-    }, [pendingPrompt, sendMessage]);
+            // Include hiddenContext in the message sent to AI
+            let promptContent = pendingPromptMsg.content;
+            const hiddenCtx = (pendingPromptMsg as any).hiddenContext;
 
-    // Scroll to bottom on new messages
+            console.log('[EmbeddedChat DEBUG] Auto-triggering with:', { content: promptContent?.slice(0, 50), hiddenContext: hiddenCtx });
+
+            // Prepend hiddenContext directly to message content
+            // This is the most reliable way since transport.body is captured at hook init time
+            // Format as a blockquote for nice UI rendering
+            if (hiddenCtx) {
+                // Extract just the quoted text from the hiddenContext
+                const match = hiddenCtx.match(/User highlighted: "(.+?)"/);
+                const quotedText = match ? match[1] : hiddenCtx;
+                promptContent = `> "${quotedText}"\n\n${promptContent}`;
+                console.log('[EmbeddedChat DEBUG] Augmented prompt:', promptContent);
+            }
+
+            sendMessageRef.current(promptContent);
+        }
+    }, [pendingPromptMsg]); // Remove sendMessage from deps, use ref instead
+
+    // Scroll to bottom on new messages - but only if user is near the bottom
+    // This allows users to scroll up while streaming
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const container = containerRef.current;
+        if (!container) return;
+
+        // Check if user is near the bottom (within 100px)
+        const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+
+        if (isNearBottom) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
     }, [messages]);
 
     // Keep a ref to messages for the event listener to access latest state without re-binding
@@ -271,6 +323,15 @@ export default function EmbeddedChat({
         } catch (err) {
             console.error('[EmbeddedChat] Network error saving user message:', err);
         }
+
+        // Update transport body ref before sending (so useChat uses current values)
+        transportBodyRef.current = {
+            isSearchEnabled,
+            thinkHarder,
+            model: effectiveModel,
+            branchContext,
+            pendingHiddenContext: null, // Clear any pending context from auto-trigger
+        };
 
         // Now send to AI (the API route won't re-save since we already saved)
         // console.log('[EmbeddedChat] Sending to AI:', { messageContent, effectiveModel, isSearchEnabled });
@@ -346,6 +407,9 @@ export default function EmbeddedChat({
 
                             const dbMessageId = messageIdMapRef.current.get(index) || (initialMessages[index] as any)?.id || null;
 
+                            // Save the selection range before React re-render
+                            const range = selection.getRangeAt(0).cloneRange();
+
                             setContextMenu({
                                 x: e.clientX,
                                 y: e.clientY + 10,
@@ -355,6 +419,16 @@ export default function EmbeddedChat({
                                 quoteText: selectedText,
                                 messageIndex: index,
                             });
+
+                            // Restore selection after React re-render
+                            requestAnimationFrame(() => {
+                                const sel = window.getSelection();
+                                if (sel) {
+                                    sel.removeAllRanges();
+                                    sel.addRange(range);
+                                }
+                            });
+
                             return; // Success, context menu set
                         }
                     }
@@ -642,7 +716,7 @@ export default function EmbeddedChat({
 
                 {/* Thinking indicator - shows when AI is processing before streaming starts */}
                 {status === 'submitted' && (
-                    <ThinkingIndicator />
+                    <ThinkingIndicator isDeepResearch={isSearchEnabled} />
                 )}
 
                 <div ref={messagesEndRef} />

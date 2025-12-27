@@ -276,7 +276,7 @@ export default function ChatInput({
                         <button
                             className={`chat-tool-btn ${isSearchEnabled ? 'active' : ''}`}
                             type="button"
-                            title="Toggle Web Search"
+                            title="Toggle Deep Research (1/day)"
                             onClick={() => onSearchToggle?.(!isSearchEnabled)}
                             style={{
                                 color: isSearchEnabled ? 'var(--accent)' : 'currentColor',
@@ -291,7 +291,7 @@ export default function ChatInput({
                                 <circle cx="11" cy="11" r="8"></circle>
                                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                             </svg>
-                            <span style={{ fontSize: '13px', fontWeight: 500 }}>Web Search</span>
+                            <span style={{ fontSize: '13px', fontWeight: 500 }}>Deep Research</span>
                         </button>
 
                         <button

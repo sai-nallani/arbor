@@ -130,12 +130,13 @@ export default function Canvas({
     }, [initialLinks]);
 
     // Store messages separately for quick lookup
-    const [blockMessages, setBlockMessages] = useState<Record<string, Array<{ role: 'user' | 'assistant'; content: string }>>>(() => {
-        const initial: Record<string, Array<{ role: 'user' | 'assistant'; content: string }>> = {};
+    const [blockMessages, setBlockMessages] = useState<Record<string, Array<{ role: 'user' | 'assistant'; content: string; hiddenContext?: string }>>>(() => {
+        const initial: Record<string, Array<{ role: 'user' | 'assistant'; content: string; hiddenContext?: string }>> = {};
         initialBlocks.forEach((block) => {
             initial[block.id] = block.messages.map((m) => ({
                 role: m.role as 'user' | 'assistant',
                 content: m.content,
+                hiddenContext: (m as any).hiddenContext,
             }));
         });
         return initial;
@@ -167,7 +168,8 @@ export default function Canvas({
                     messages: block.messages.map((m) => ({
                         role: m.role as 'user' | 'assistant',
                         content: m.content,
-                        id: m.id // Ensure ID is passed for linking
+                        id: m.id, // Ensure ID is passed for linking
+                        hiddenContext: (m as any).hiddenContext,
                     })),
                     links: initialLinksMap,
                 },
@@ -1188,7 +1190,8 @@ export default function Canvas({
                     ? responseData.messages.map((m: any) => ({
                         id: m.id,
                         role: m.role,
-                        content: m.content
+                        content: m.content,
+                        hiddenContext: m.hiddenContext,
                     }))
                     : initialVisibleMessages;
 
@@ -1275,6 +1278,7 @@ export default function Canvas({
                     messages: block.messages.map((m: any) => ({
                         role: m.role,
                         content: m.content,
+                        hiddenContext: m.hiddenContext,
                     })),
                 });
             });

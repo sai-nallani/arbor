@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, doublePrecision, uuid, uniqueIndex, boolean, jsonb, AnyPgColumn } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, doublePrecision, uuid, uniqueIndex, boolean, jsonb, AnyPgColumn, integer } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // ============================================
@@ -261,6 +261,7 @@ export const dailyTokenUsage = pgTable('daily_token_usage', {
     userId: text('user_id'), // Nullable if anon, but ideally linked to user
     date: text('date').notNull(), // Format: YYYY-MM-DD
     tokenCount: doublePrecision('token_count').default(0).notNull(),
+    deepResearchCount: integer('deep_research_count').default(0).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
     uniqueIndex('daily_token_usage_user_date_idx').on(table.userId, table.date),

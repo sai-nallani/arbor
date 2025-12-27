@@ -1,18 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
-
+// This component is intentionally empty - we allow signed-in users to view the landing page
+// They can navigate to /chat via the CTA button
 export function AuthRedirect() {
-    const { isSignedIn, isLoaded } = useAuth();
-    const router = useRouter();
-
-    useEffect(() => {
-        if (isLoaded && isSignedIn) {
-            router.push('/chat');
-        }
-    }, [isLoaded, isSignedIn, router]);
-
     return null;
 }

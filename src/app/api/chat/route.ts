@@ -41,13 +41,22 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { messages: chatMessages, model, chatBlockId, isSearchEnabled, thinkHarder, branchContext, imageUrls } = body;
+        const { messages: chatMessages, model, chatBlockId, isSearchEnabled, thinkHarder, branchContext, imageUrls, pendingHiddenContext } = body;
+
+        // DEBUG: Log incoming message context
+        console.log('[CHAT API DEBUG] pendingHiddenContext:', pendingHiddenContext);
+        console.log('[CHAT API DEBUG] Messages count:', chatMessages?.length);
+        if (chatMessages && chatMessages.length > 0) {
+            const lastMsg = chatMessages[chatMessages.length - 1];
+            console.log('[CHAT API DEBUG] Last message:', { role: lastMsg.role, contentSnippet: lastMsg.content?.slice(0, 50), hiddenContext: lastMsg.hiddenContext });
+        }
 
         // --- 1. Rate Limit Check ---
         const today = new Date().toISOString().split('T')[0];
 
-        // Fetch current usage
+        // Fetch current usage (tokens and deep research count)
         let currentUsage = 0;
+        let deepResearchUsedToday = 0;
         try {
             const usageRecord = await db.query.dailyTokenUsage.findFirst({
                 where: and(
@@ -57,10 +66,21 @@ export async function POST(req: NextRequest) {
             });
             if (usageRecord) {
                 currentUsage = usageRecord.tokenCount;
+                deepResearchUsedToday = usageRecord.deepResearchCount || 0;
             }
         } catch (e) {
             console.error('Failed to fetch daily token usage:', e);
-            // Default to 0 to allow user to proceed if DB fails, but log error
+        }
+
+        // Check if Deep Research is requested but limit reached
+        const isDeepResearchEnabled = isSearchEnabled; // Renamed internally
+        const isDeepResearchLimitReached = deepResearchUsedToday >= 1;
+
+        if (isDeepResearchEnabled && isDeepResearchLimitReached) {
+            return new Response(JSON.stringify({ error: 'Deep Research limit reached (1/day). Please try again tomorrow.' }), {
+                status: 429, // Too Many Requests
+                headers: { 'Content-Type': 'application/json' },
+            });
         }
 
         // Estimate input tokens to check if this specific request pushes over
@@ -75,15 +95,17 @@ export async function POST(req: NextRequest) {
 
         // --- 2. Model Selection & Fallback ---
         let selectedModel = model || 'openai/gpt-5.1';
-
-        // Strip prefix if needed (Dedalus uses openai/ prefix, OpenAI SDK might expect just model id)
-        // Actually, OpenAI SDK usually takes "gpt-5.1" directly. 
-        // We'll clean up the prefix.
         let apiModelName = selectedModel.replace('openai/', '');
 
-        if (isLimitExceeded) {
-            // console.warn(`[CHAT ${requestId}] Rate limit exceeded (${currentUsage} + ${estimatedInputTokens} > ${DAILY_TOKEN_LIMIT}). Downgrading to gpt-5-mini.`);
-            // Force fallback if trying to use premium model
+        // Model switching based on modes
+        if (isDeepResearchEnabled) {
+            apiModelName = 'o4-mini-deep-research';
+        } else if (thinkHarder) {
+            apiModelName = 'o4-mini';
+        }
+
+        // General rate limit fallback for non-special models
+        if (isLimitExceeded && !isDeepResearchEnabled && !thinkHarder) {
             if (apiModelName === 'gpt-5.1' || apiModelName === 'gpt-4o' || apiModelName === 'gpt-4.1') {
                 apiModelName = 'gpt-5-mini';
             }
@@ -118,11 +140,19 @@ export async function POST(req: NextRequest) {
         }
 
         // ... Inject hidden context ...
-        const processedCurrentMessages = repairedMessages.map((msg: any) => {
+        const processedCurrentMessages = repairedMessages.map((msg: any, index: number) => {
             let content = msg.content;
+
+            // First check for hiddenContext on the message itself (from DB)
             if (msg.hiddenContext && typeof msg.content === 'string') {
                 content = `[Context: ${msg.hiddenContext}]\n\n${msg.content}`;
             }
+
+            // Then check for pendingHiddenContext (from auto-triggered branch) for the LAST user message
+            if (pendingHiddenContext && index === repairedMessages.length - 1 && msg.role === 'user' && typeof msg.content === 'string') {
+                content = `[Context: ${pendingHiddenContext}]\n\n${content}`;
+            }
+
             // Strictly return standard fields. OpenAI Responses API complains if 'id' is not in 'msg_' format.
             return {
                 role: msg.role,
@@ -242,13 +272,12 @@ export async function POST(req: NextRequest) {
 
         // Prepare configured params
         let reasoningOptions = undefined;
-        // Logic: thinkHarder ON + gpt-5.1 => High Effort
-        if (apiModelName === 'gpt-5.1' && thinkHarder) {
-            reasoningOptions = { effort: 'high' };
-        }
+        // Logic: o4-mini reasoning = built-in; gpt-5.1 + thinkHarder = high effort (legacy fallback if needed)
+        // o4-mini models have reasoning built-in, no need for extra params.
+        // For gpt-5.1, the reasoning.effort param was confirmed to not work, so removing.
 
-        // Tools
-        const tools = isSearchEnabled ? [{ type: 'web_search_preview' as const }] : undefined;
+        // Tools: Deep research models REQUIRE web_search_preview. Regular models also get it. Only reasoning (o4-mini) doesn't need it.
+        const tools = (!thinkHarder) ? [{ type: 'web_search_preview' as const }] : undefined;
 
         // console.log(`[CHAT ${requestId}] Calling OpenAI Responses API with model: ${apiModelName}, Search: ${isSearchEnabled}, ThinkHarder: ${!!thinkHarder}`);
 
@@ -321,6 +350,9 @@ export async function POST(req: NextRequest) {
                                 }]
                             };
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+
+                            // Small delay to slow down streaming for better readability
+                            await new Promise(resolve => setTimeout(resolve, 40));
                         }
                     }
 
@@ -332,33 +364,28 @@ export async function POST(req: NextRequest) {
                     controller.error(err);
                 } finally {
                     // --- 6. Update Daily Usage ---
-                    if (totalUsage > 0 && userId) {
+                    if (userId) {
                         try {
-                            // Simple Upsert logic:
-                            // Try insert, on conflict update.
-                            // Drizzle upsert:
+                            // Calculate deep research increment (1 if used, 0 otherwise)
+                            const deepResearchIncrement = isDeepResearchEnabled ? 1 : 0;
+
+                            // Simple Upsert logic with atomic increments
                             await db.insert(dailyTokenUsage).values({
                                 userId: userId,
                                 date: today,
-                                tokenCount: totalUsage, // This likely needs to be INCREMENTAL addition, but stream usage is usually "total for this req".
-                                // Wait, we need to ADD to existing.
+                                tokenCount: totalUsage > 0 ? totalUsage : 0,
+                                deepResearchCount: deepResearchIncrement,
                             }).onConflictDoUpdate({
                                 target: [dailyTokenUsage.userId, dailyTokenUsage.date],
                                 set: {
-                                    tokenCount: sql`${dailyTokenUsage.tokenCount} + ${totalUsage}`,
+                                    tokenCount: totalUsage > 0 ? sql`${dailyTokenUsage.tokenCount} + ${totalUsage}` : sql`${dailyTokenUsage.tokenCount}`,
+                                    deepResearchCount: sql`${dailyTokenUsage.deepResearchCount} + ${deepResearchIncrement}`,
                                     updatedAt: new Date()
                                 }
                             });
-                            // console.log(`[CHAT ${requestId}] Updated daily usage by +${totalUsage}`);
                         } catch (dbErr) {
                             console.error(`[CHAT ${requestId}] Failed to update usage stats:`, dbErr);
                         }
-                    } else if (userId) {
-                        // Fallback usage calculation if API didn't return usage
-                        const estimatedOutput = 500; // heuristic
-                        const totalEst = estimatedInputTokens + estimatedOutput;
-                        // Perform update...
-                        // (Omitting for brevity, relying on API usage for now)
                     }
                     controller.close();
                 }
@@ -381,6 +408,7 @@ export async function POST(req: NextRequest) {
         });
     }
 }
+
 
 // Helper to use SQL operator
 import { sql } from 'drizzle-orm';
